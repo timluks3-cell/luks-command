@@ -36,7 +36,7 @@
     const highCount=jobs.filter(x=>(x.match_score||0)>=75).length;
     E("view").innerHTML=
       '<div class="row space"><div><h1>Dashboard</h1><div class="muted">Database-backed Command Centre</div></div><button class="btn" onclick="signOut()">Sign out</button></div>'+
-      '<div class="grid">'+
+      '<div id="scanRequestStatus">'+scanRequestCard(latestRequest)+'</div><div class="grid">'+
       '<div class="card"><b>'+jobs.length+'</b><div class="muted">Tracked jobs</div></div>'+
       '<div class="card"><b>'+openCount+'</b><div class="muted">Verified open</div></div>'+
       '<div class="card"><b>'+highCount+'</b><div class="muted">75%+ matches</div></div>'+
@@ -85,7 +85,7 @@
       jobs=r.data||[];
     }
     E("view").innerHTML=
-      '<div class="row space"><div><h1>Career</h1><div class="muted">Track opportunities from discovery to application.</div></div><div class="row"><button class="btn" onclick="go(\'scanner\')">Daily scanner</button><button class="btn primary" onclick="openSources()">Open job websites</button></div></div>'+
+      '<div class="row space"><div><h1>Career</h1><div class="muted">Track opportunities from discovery to application.</div></div><div class="row"><button class="btn primary" onclick="requestJobScan()">Scan all sources now</button><button class="btn" onclick="go(\'scanner\')">Job scanner</button><button class="btn" onclick="openSources()">Open job websites</button></div></div>'+
       '<div class="card"><b class="good">Current-jobs rule</b><p class="muted">Only verified-open vacancies are treated as current opportunities.</p></div>'+
       (localMode?'':'<div class="row"><input id="jobFilter" class="input" style="max-width:340px" placeholder="Filter title, company or location" oninput="filterJobRows()"><select id="scoreFilter" class="select" style="max-width:180px" onchange="filterJobRows()"><option value="0">All match scores</option><option value="75">75%+</option><option value="85">85%+</option><option value="90">90%+</option></select></div><h2>Tracked jobs</h2>'+jobTable(jobs));
   };
@@ -95,20 +95,23 @@
       E("view").innerHTML='<h1>Daily Job Scanner</h1><div class="card muted">Sign in to see automated scans and matched vacancies.</div>';
       return;
     }
-    const [runs,jobs,profile,sources]=await Promise.all([
+    const [runs,jobs,profile,sources,requests]=await Promise.all([
       db.from("job_scan_runs").select("*").order("started_at",{ascending:false}).limit(10),
       db.from("jobs").select("*").eq("verified_open",true).order("match_score",{ascending:false}).limit(50),
       db.from("career_profiles").select("professional_title,preferred_roles,preferred_locations,skills,master_cv_file_name").maybeSingle(),
-      db.from("job_sources").select("name,domain,source_group,enabled,last_checked_at,useful_hits,rejected_hits").eq("enabled",true).order("source_group").order("name")
+      db.from("job_sources").select("name,domain,source_group,enabled,last_checked_at,useful_hits,rejected_hits").eq("enabled",true).order("source_group").order("name"),
+      db.from("job_scan_requests").select("*").order("requested_at",{ascending:false}).limit(5)
     ]);
     const runRows=runs.data||[];
     const jobRows=jobs.data||[];
     const p=profile.data||{};
     const sourceRows=sources.data||[];
+    const requestRows=requests.data||[];
+    const latestRequest=requestRows[0]||null;
     const sourceGroups=[...new Set(sourceRows.map(s=>s.source_group||"Other"))];
     const last=runRows[0]||null;
     E("view").innerHTML=
-      '<div class="row space"><div><h1>Daily Job Scanner</h1><div class="muted">Automatic searches use your master career profile and only keep verified-open vacancies.</div></div><button class="btn" onclick="openSources()">Open sources manually</button></div>'+
+      '<div class="row space"><div><h1>Daily Job Scanner</h1><div class="muted">Automatic searches use your master career profile and only keep verified-open vacancies.</div></div><div class="row"><button class="btn primary" onclick="requestJobScan()">Scan all sources now</button><button class="btn" onclick="openSources()">Open sources manually</button></div></div>'+
       '<div class="grid">'+
       '<div class="card"><b>'+(last?new Date(last.started_at).toLocaleDateString():'—')+'</b><div class="muted">Last scan</div></div>'+
       '<div class="card"><b>'+(last?last.vacancies_found:0)+'</b><div class="muted">Found in last scan</div></div>'+
@@ -137,6 +140,81 @@
       }).join("")+'</div></div>';
     }).join("");
     document.body.insertAdjacentHTML("beforeend",'<div class="overlay"><div class="modal"><div class="row space"><div><h2>Job Source Registry</h2><div class="muted">'+rows.length+' enabled sources used by the daily scan.</div></div><button class="btn" onclick="closeModal()">Close</button></div>'+html+'</div></div>');
+  };
+
+
+  window.requestJobScan = async function(){
+    if(localMode||!user){
+      alert("Sign in to run a live scan.");
+      return;
+    }
+
+    const existing=await db.from("job_scan_requests")
+      .select("*")
+      .in("status",["pending","running"])
+      .order("requested_at",{ascending:false})
+      .limit(1);
+
+    if(existing.error){msg(existing.error.message,"bad");return}
+
+    let req=existing.data&&existing.data[0]?existing.data[0]:null;
+    if(!req){
+      const inserted=await db.from("job_scan_requests")
+        .insert({
+          user_id:user.id,
+          requested_scope:"all_sources",
+          message:"Full manual scan requested from Luks Command"
+        })
+        .select()
+        .single();
+      if(inserted.error){msg(inserted.error.message,"bad");return}
+      req=inserted.data;
+    }
+
+    page="scanner";
+    render();
+    setTimeout(()=>pollScanRequest(req.id),1200);
+  };
+
+  function scanRequestCard(req){
+    if(!req){
+      return '<div class="card"><div class="row space"><div><b>Manual full scan</b><div class="muted">Press “Scan all sources now” to queue a fresh search across the enabled source registry.</div></div></div></div>';
+    }
+    const labels={pending:"Queued",running:"Searching",completed:"Completed",partial:"Completed with limits",failed:"Failed"};
+    const label=labels[req.status]||req.status;
+    const when=req.requested_at?new Date(req.requested_at).toLocaleString():"";
+    return '<div class="card"><div class="row space"><div><b>Manual full scan: '+esc(label)+'</b><div class="muted">Requested '+esc(when)+'</div></div><span class="pill">'+esc(req.status)+'</span></div>'+
+      '<p class="muted">'+esc(req.message||(
+        req.status==="pending"?"Waiting for the background search worker.":
+        req.status==="running"?"Searching configured sources and verifying live vacancies.":
+        req.status==="completed"?"Results have been written to the job list below.":
+        req.status==="partial"?"Scan completed, but some sources could not be checked.":
+        "The scan could not complete."
+      ))+'</p></div>';
+  }
+
+  window.pollScanRequest = function(id){
+    if(window.__scanPoll) clearInterval(window.__scanPoll);
+    let checks=0;
+    const tick=async()=>{
+      checks++;
+      const r=await db.from("job_scan_requests").select("*").eq("id",id).maybeSingle();
+      if(r.error) return;
+      const req=r.data;
+      const holder=E("scanRequestStatus");
+      if(holder&&req) holder.innerHTML=scanRequestCard(req);
+      if(req&&["completed","partial","failed"].includes(req.status)){
+        clearInterval(window.__scanPoll);
+        window.__scanPoll=null;
+        if(page==="scanner") scanner();
+      }
+      if(checks>=480){
+        clearInterval(window.__scanPoll);
+        window.__scanPoll=null;
+      }
+    };
+    tick();
+    window.__scanPoll=setInterval(tick,15000);
   };
 
   window.settings = function(){
