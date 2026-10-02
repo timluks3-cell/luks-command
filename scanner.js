@@ -111,7 +111,8 @@
     const sourceGroups=[...new Set(sourceRows.map(s=>s.source_group||"Other"))];
     const last=runRows[0]||null;
     E("view").innerHTML=
-      '<div class="row space"><div><h1>Daily Job Scanner</h1><div class="muted">Automatic searches use your master career profile and only keep verified-open vacancies.</div></div><div class="row"><button class="btn primary" onclick="requestJobScan()">Scan all sources now</button><button class="btn" onclick="openSources()">Open sources manually</button></div></div>'+
+      '<div class="row space"><div><h1>Daily Job Scanner</h1><div class="muted">Automatic searches use your master career profile and only keep verified-open vacancies.</div></div><div class="row"><button id="scanNowBtn" class="btn primary" onclick="requestJobScan()">Scan all sources now</button><button class="btn" onclick="openSources()">Open sources manually</button></div></div>'+
+      '<div id="scanRequestStatus">'+scanRequestCard(latestRequest)+'</div>'+
       '<div class="grid">'+
       '<div class="card"><b>'+(last?new Date(last.started_at).toLocaleDateString():'—')+'</b><div class="muted">Last scan</div></div>'+
       '<div class="card"><b>'+(last?last.vacancies_found:0)+'</b><div class="muted">Found in last scan</div></div>'+
@@ -148,44 +149,119 @@
       alert("Sign in to run a live scan.");
       return;
     }
+    if(window.__liveScanRunning) return;
+    window.__liveScanRunning=true;
 
-    const existing=await db.from("job_scan_requests")
-      .select("*")
-      .in("status",["pending","running"])
-      .order("requested_at",{ascending:false})
-      .limit(1);
+    const btn=E("scanNowBtn");
+    if(btn){btn.disabled=true;btn.textContent="Scanning…";}
 
-    if(existing.error){msg(existing.error.message,"bad");return}
+    let req=null;
+    let runId=null;
+    let offset=0;
+    let total=0;
+    let checked=0;
+    let found=0;
+    let verified=0;
+    let imported=0;
+    let rejected=0;
 
-    let req=existing.data&&existing.data[0]?existing.data[0]:null;
-    if(!req){
+    try{
       const inserted=await db.from("job_scan_requests")
         .insert({
           user_id:user.id,
           requested_scope:"all_sources",
-          message:"Full manual scan requested from Luks Command"
+          status:"pending",
+          message:"Starting live scan from Luks Command"
         })
         .select()
         .single();
-      if(inserted.error){msg(inserted.error.message,"bad");return}
-      req=inserted.data;
-    }
 
-    page="scanner";
-    render();
-    setTimeout(()=>pollScanRequest(req.id),1200);
+      if(inserted.error) throw inserted.error;
+      req=inserted.data;
+
+      const holder=E("scanRequestStatus");
+      if(holder) holder.innerHTML=liveProgressCard({status:"running",checked:0,total:0,found:0,verified:0,imported:0,message:"Connecting to the live job scanner…"});
+
+      while(true){
+        const invoke=await db.functions.invoke("scan-jobs",{
+          body:{
+            scan_request_id:req.id,
+            run_id:runId,
+            offset:offset,
+            limit:8
+          }
+        });
+
+        if(invoke.error) throw invoke.error;
+        const data=invoke.data||{};
+        if(data.error) throw new Error(data.error);
+
+        runId=data.run_id||runId;
+        offset=data.next_offset||offset;
+        total=data.total||total;
+        checked=offset;
+        found+=Number(data.found||0);
+        verified+=Number(data.verified||0);
+        imported+=Number(data.imported||0);
+        rejected+=Number(data.rejected||0);
+
+        if(holder){
+          const pct=total?Math.min(100,Math.round((checked/total)*100)):0;
+          holder.innerHTML=liveProgressCard({
+            status:data.done?"completed":"running",
+            checked:checked,total:total,found:found,verified:verified,imported:imported,rejected:rejected,
+            percent:pct,
+            message:data.done?"Live scan completed. Refreshing current jobs and source timestamps…":"Searching source registry and verifying direct job postings…"
+          });
+        }
+
+        if(data.done) break;
+
+        // Small pause keeps the UI responsive and avoids hammering external sites.
+        await new Promise(r=>setTimeout(r,250));
+      }
+
+      await scanner();
+    }catch(err){
+      console.error(err);
+      const holder=E("scanRequestStatus");
+      if(holder) holder.innerHTML=liveProgressCard({status:"failed",checked,total,found,verified,imported,rejected,message:(err&&err.message)?err.message:String(err)});
+      if(req&&req.id){
+        await db.from("job_scan_requests").update({
+          status:"failed",
+          completed_at:new Date().toISOString(),
+          message:(err&&err.message)?err.message:String(err)
+        }).eq("id",req.id);
+      }
+    }finally{
+      window.__liveScanRunning=false;
+      const b=E("scanNowBtn");
+      if(b){b.disabled=false;b.textContent="Scan all sources now";}
+    }
   };
 
-  function scanRequestCard(req){
+  function liveProgressCard(p){
+    const total=Number(p.total||0);
+    const checked=Number(p.checked||0);
+    const percent=Number.isFinite(p.percent)?p.percent:(total?Math.round((checked/total)*100):0);
+    const label=p.status==="completed"?"Completed":p.status==="failed"?"Failed":"Searching now";
+    return '<div class="card">'+
+      '<div class="row space"><div><b>Live full-source scan: '+esc(label)+'</b><div class="muted">'+esc(p.message||"")+'</div></div><span class="pill">'+esc(p.status||"running")+'</span></div>'+
+      '<div style="height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin:12px 0"><div style="height:100%;width:'+Math.max(0,Math.min(100,percent))+'%;background:#2563eb;transition:width .2s"></div></div>'+
+      '<div class="row"><span class="pill">'+checked+(total?(" / "+total):"")+" sources checked</span><span class="pill">'+Number(p.found||0)+' candidate pages</span><span class="pill">'+Number(p.verified||0)+' verified open</span><span class="pill">'+Number(p.imported||0)+' imported</span><span class="pill">'+Number(p.rejected||0)+' rejected</span></div>'+
+    '</div>';
+  }
+
+    function scanRequestCard(req){
     if(!req){
-      return '<div class="card"><div class="row space"><div><b>Manual full scan</b><div class="muted">Press “Scan all sources now” to queue a fresh search across the enabled source registry.</div></div></div></div>';
+      return '<div class="card"><div class="row space"><div><b>Manual full scan</b><div class="muted">Press “Scan all sources now” to start a live server-side search across the enabled source registry.</div></div></div></div>';
     }
     const labels={pending:"Queued",running:"Searching",completed:"Completed",partial:"Completed with limits",failed:"Failed"};
     const label=labels[req.status]||req.status;
     const when=req.requested_at?new Date(req.requested_at).toLocaleString():"";
     return '<div class="card"><div class="row space"><div><b>Manual full scan: '+esc(label)+'</b><div class="muted">Requested '+esc(when)+'</div></div><span class="pill">'+esc(req.status)+'</span></div>'+
       '<p class="muted">'+esc(req.message||(
-        req.status==="pending"?"Waiting for the background search worker.":
+        req.status==="pending"?"Ready to start a live server-side search.":
         req.status==="running"?"Searching configured sources and verifying live vacancies.":
         req.status==="completed"?"Results have been written to the job list below.":
         req.status==="partial"?"Scan completed, but some sources could not be checked.":
