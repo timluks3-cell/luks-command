@@ -95,14 +95,17 @@
       E("view").innerHTML='<h1>Daily Job Scanner</h1><div class="card muted">Sign in to see automated scans and matched vacancies.</div>';
       return;
     }
-    const [runs,jobs,profile]=await Promise.all([
+    const [runs,jobs,profile,sources]=await Promise.all([
       db.from("job_scan_runs").select("*").order("started_at",{ascending:false}).limit(10),
       db.from("jobs").select("*").eq("verified_open",true).order("match_score",{ascending:false}).limit(50),
-      db.from("career_profiles").select("professional_title,preferred_roles,preferred_locations,skills,master_cv_file_name").maybeSingle()
+      db.from("career_profiles").select("professional_title,preferred_roles,preferred_locations,skills,master_cv_file_name").maybeSingle(),
+      db.from("job_sources").select("name,domain,source_group,enabled,last_checked_at,useful_hits,rejected_hits").eq("enabled",true).order("source_group").order("name")
     ]);
     const runRows=runs.data||[];
     const jobRows=jobs.data||[];
     const p=profile.data||{};
+    const sourceRows=sources.data||[];
+    const sourceGroups=[...new Set(sourceRows.map(s=>s.source_group||"Other"))];
     const last=runRows[0]||null;
     E("view").innerHTML=
       '<div class="row space"><div><h1>Daily Job Scanner</h1><div class="muted">Automatic searches use your master career profile and only keep verified-open vacancies.</div></div><button class="btn" onclick="openSources()">Open sources manually</button></div>'+
@@ -112,11 +115,28 @@
       '<div class="card"><b>'+(last?last.verified_open:0)+'</b><div class="muted">Verified open</div></div>'+
       '<div class="card"><b>'+jobRows.filter(x=>(x.match_score||0)>=75).length+'</b><div class="muted">75%+ current matches</div></div>'+
       '</div>'+
-      '<div class="card"><b>Master profile</b><p>'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</p><div class="muted">CV: '+esc(p.master_cv_file_name||"Master CV")+'</div><div style="margin-top:8px">'+((p.preferred_roles||[]).slice(0,8).map(x=>'<span class="pill">'+esc(x)+'</span>').join(""))+'</div></div>'+
+      '<div class="card"><div class="row space"><div><b>Master profile</b><p>'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</p><div class="muted">CV: '+esc(p.master_cv_file_name||"Master CV")+'</div></div><div><span class="pill">'+sourceRows.length+' enabled sources</span><span class="pill">'+sourceGroups.length+' source groups</span></div></div><div style="margin-top:8px">'+((p.preferred_roles||[]).slice(0,8).map(x=>'<span class="pill">'+esc(x)+'</span>').join(""))+'</div></div>'+
+      '<div class="card"><div class="row space"><div><b>Search registry from your attached source list</b><div class="muted">The daily scan uses these sources plus newly discovered relevant employers.</div></div><button class="btn" onclick="showSourceRegistry()">View sources</button></div></div>'+
       '<h2>Best current matches</h2>'+jobTable(jobRows)+
       '<h2>Recent scans</h2><div class="card" style="overflow:auto"><table><thead><tr><th>Date</th><th>Status</th><th>Sources</th><th>Found</th><th>Verified</th><th>Imported</th></tr></thead><tbody>'+
       runRows.map(x=>'<tr><td>'+new Date(x.started_at).toLocaleString()+'</td><td>'+esc(x.status)+'</td><td>'+x.sources_checked+'</td><td>'+x.vacancies_found+'</td><td>'+x.verified_open+'</td><td>'+x.imported_count+'</td></tr>').join("")+
       '</tbody></table></div>';
+  };
+
+
+  window.showSourceRegistry = async function(){
+    const r=await db.from("job_sources").select("name,domain,source_group,enabled,last_checked_at,useful_hits,rejected_hits").eq("enabled",true).order("source_group").order("name");
+    if(r.error){msg(r.error.message,"bad");return}
+    const rows=r.data||[];
+    const groups=[...new Set(rows.map(x=>x.source_group||"Other"))];
+    const html=groups.map(g=>{
+      const items=rows.filter(x=>(x.source_group||"Other")===g);
+      return '<div class="card"><b>'+esc(g)+'</b><div class="muted">'+items.length+' sources</div><div style="margin-top:10px">'+items.map(s=>{
+        const clickable=(s.domain||"").startsWith("http");
+        return '<div class="row space" style="padding:6px 0;border-bottom:1px solid #eef2f7"><span>'+esc(s.name)+'</span>'+(clickable?'<button class="btn" onclick="openExternal(\''+s.domain+'\')">Open</button>':'<span class="muted">search target</span>')+'</div>';
+      }).join("")+'</div></div>';
+    }).join("");
+    document.body.insertAdjacentHTML("beforeend",'<div class="overlay"><div class="modal"><div class="row space"><div><h2>Job Source Registry</h2><div class="muted">'+rows.length+' enabled sources used by the daily scan.</div></div><button class="btn" onclick="closeModal()">Close</button></div>'+html+'</div></div>');
   };
 
   window.settings = function(){
