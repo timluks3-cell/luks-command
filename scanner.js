@@ -248,7 +248,7 @@
     return '<div class="card">'+
       '<div class="row space"><div><b>Live full-source scan: '+esc(label)+'</b><div class="muted">'+esc(p.message||"")+'</div></div><span class="pill">'+esc(p.status||"running")+'</span></div>'+
       '<div style="height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin:12px 0"><div style="height:100%;width:'+Math.max(0,Math.min(100,percent))+'%;background:#2563eb;transition:width .2s"></div></div>'+
-      '<div class="row"><span class="pill">'+checked+(total?(" / "+total):"")+" sources checked</span><span class="pill">'+Number(p.found||0)+' candidate pages</span><span class="pill">'+Number(p.verified||0)+' verified open</span><span class="pill">'+Number(p.imported||0)+' imported</span><span class="pill">'+Number(p.rejected||0)+' rejected</span></div>'+
+      '<div class="row"><span class="pill">'+checked+(total?(" / "+total):"")+' sources checked</span><span class="pill">'+Number(p.found||0)+' candidate pages</span><span class="pill">'+Number(p.verified||0)+' verified open</span><span class="pill">'+Number(p.imported||0)+' imported</span><span class="pill">'+Number(p.rejected||0)+' rejected</span></div>'+
     '</div>';
   }
 
