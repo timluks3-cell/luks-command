@@ -57,7 +57,13 @@
       '<td><b>'+(j.match_score==null?'—':j.match_score+'%')+'</b></td>'+
       '<td>'+esc(j.status)+'</td>'+
       '<td>'+(j.verified_open?'<span class="good">Open</span>':esc(j.verification_status||"unverified"))+'</td>'+
-      '<td><div class="row">'+(j.job_url?'<button class="btn" onclick="openExternal(\''+j.job_url+'\')">Open</button>':'')+'<button class="btn" onclick="setJobStatus(\''+j.id+'\',\'reviewing\')">Review</button><button class="btn" onclick="setJobStatus(\''+j.id+'\',\'dismissed\')">Dismiss</button></div></td>'+
+      '<td><div class="row">'+
+        (j.job_url?'<button class="btn" onclick="openExternal(\''+j.job_url+'\')">Open</button>':'')+
+        '<button class="btn" onclick="setJobStatus(\''+j.id+'\',\'reviewing\')">Review</button>'+
+        '<button class="btn" onclick="setJobStatus(\''+j.id+'\',\'applied\')">Applied</button>'+
+        '<button class="btn" onclick="setJobStatus(\''+j.id+'\',\'closed\')">Closed</button>'+
+        '<button class="btn" onclick="setJobStatus(\''+j.id+'\',\'dismissed\')">Dismiss</button>'+
+      '</div></td>'+
     '</tr>').join("")+
     '</tbody></table></div>';
   };
