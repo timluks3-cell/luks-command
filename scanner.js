@@ -119,7 +119,11 @@
       '<div class="card"><b>'+(last?last.verified_open:0)+'</b><div class="muted">Verified open</div></div>'+
       '<div class="card"><b>'+jobRows.filter(x=>(x.match_score||0)>=75).length+'</b><div class="muted">75%+ current matches</div></div>'+
       '</div>'+
-      '<div class="card"><div class="row space"><div><b>Master profile</b><p>'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</p><div class="muted">CV: '+esc(p.master_cv_file_name||"Master CV")+'</div></div><div><span class="pill">'+sourceRows.length+' enabled sources</span><span class="pill">'+sourceGroups.length+' source groups</span></div></div><div style="margin-top:8px">'+((p.preferred_roles||[]).slice(0,8).map(x=>'<span class="pill">'+esc(x)+'</span>').join(""))+'</div></div>'+
+      '<div class="card"><div class="row space"><div><b>Master profile</b><p>'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</p><div class="muted">CV: '+esc(p.master_cv_file_name||"Master CV")+'</div></div><div><span class="pill">'+sourceRows.length+' enabled sources</span><span class="pill">'+sourceGroups.length+' source groups</span></div></div>'+
+      '<div style="margin-top:12px"><b>Target roles</b><div class="muted">Add or remove roles here. Future job scans will use this list.</div></div>'+
+      '<div id="roleChips" class="row" style="margin-top:10px">'+((p.preferred_roles||[]).map(x=>roleChip(x)).join(""))+'</div>'+
+      '<div class="row" style="margin-top:12px"><input id="newRoleInput" class="input" style="max-width:360px" placeholder="Add role, e.g. BIM Specialist" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addPreferredRole()}"><button class="btn primary" onclick="addPreferredRole()">Add role</button></div>'+
+    '</div>'+
       '<div class="card"><div class="row space"><div><b>Search registry from your attached source list</b><div class="muted">The daily scan uses these sources plus newly discovered relevant employers.</div></div><button class="btn" onclick="showSourceRegistry()">View sources</button></div></div>'+
       '<h2>Best current matches</h2>'+jobTable(jobRows)+
       '<h2>Source registry</h2><div class="card"><div class="row"><input id="sourceFilter" class="input" style="max-width:360px" placeholder="Filter company or source" oninput="filterSourceRegistry()"><select id="sourceGroup" class="select" style="max-width:260px" onchange="filterSourceRegistry()"><option value="">All groups</option>'+[...new Set(sourceRows.map(s=>s.source_group).filter(Boolean))].map(g=>'<option value="'+esc(g)+'">'+esc(g)+'</option>').join("")+'</select></div><div style="overflow:auto;margin-top:10px"><table id="sourceRegistry"><thead><tr><th>Source</th><th>Group</th><th>Last checked</th><th>Open</th></tr></thead><tbody>'+sourceRows.map(s=>'<tr data-text="'+esc(((s.name||"")+" "+(s.source_group||"")).toLowerCase())+'" data-group="'+esc(s.source_group||"")+'"><td><b>'+esc(s.name)+'</b></td><td>'+esc(s.source_group||"")+'</td><td>'+((s.last_checked_at)?new Date(s.last_checked_at).toLocaleString():"Not yet")+'</td><td>'+((s.domain||"").startsWith("http")?'<button class="btn" onclick="openExternal(\''+s.domain+'\')">Open</button>':'<span class="muted">Search target</span>')+'</td></tr>').join("")+'</tbody></table></div></div><h2>Recent scans</h2><div class="card" style="overflow:auto"><table><thead><tr><th>Date</th><th>Status</th><th>Sources</th><th>Found</th><th>Verified</th><th>Imported</th></tr></thead><tbody>'+
@@ -127,6 +131,44 @@
       '</tbody></table></div>';
   };
 
+
+  function roleChip(role){
+    const safe=esc(role);
+    const encoded=encodeURIComponent(role);
+    return '<span class="pill" style="display:inline-flex;align-items:center;gap:6px">'+safe+'<button type="button" aria-label="Remove '+safe+'" title="Remove role" onclick="removePreferredRole(decodeURIComponent(\''+encoded+'\'))" style="border:0;background:transparent;cursor:pointer;font-size:17px;line-height:1;padding:0 2px">×</button></span>';
+  }
+
+  window.addPreferredRole = async function(){
+    if(localMode||!user){alert("Sign in to edit target roles.");return}
+    const input=E("newRoleInput");
+    const role=(input?.value||"").trim().replace(/\s+/g," ");
+    if(!role) return;
+    if(role.length>80){alert("Please use a shorter role title.");return}
+
+    const r=await db.from("career_profiles").select("preferred_roles").eq("user_id",user.id).maybeSingle();
+    if(r.error){msg(r.error.message,"bad");return}
+    const roles=Array.isArray(r.data?.preferred_roles)?r.data.preferred_roles:[];
+    if(roles.some(x=>String(x).toLowerCase()===role.toLowerCase())){
+      alert("That role is already in the list.");
+      return;
+    }
+    const updated=[...roles,role];
+    const u=await db.from("career_profiles").update({preferred_roles:updated,updated_at:new Date().toISOString()}).eq("user_id",user.id);
+    if(u.error){msg(u.error.message,"bad");return}
+    if(input) input.value="";
+    await scanner();
+  };
+
+  window.removePreferredRole = async function(role){
+    if(localMode||!user){alert("Sign in to edit target roles.");return}
+    const r=await db.from("career_profiles").select("preferred_roles").eq("user_id",user.id).maybeSingle();
+    if(r.error){msg(r.error.message,"bad");return}
+    const roles=Array.isArray(r.data?.preferred_roles)?r.data.preferred_roles:[];
+    const updated=roles.filter(x=>String(x)!==String(role));
+    const u=await db.from("career_profiles").update({preferred_roles:updated,updated_at:new Date().toISOString()}).eq("user_id",user.id);
+    if(u.error){msg(u.error.message,"bad");return}
+    await scanner();
+  };
 
   window.showSourceRegistry = async function(){
     const r=await db.from("job_sources").select("name,domain,source_group,enabled,last_checked_at,useful_hits,rejected_hits").eq("enabled",true).order("source_group").order("name");
