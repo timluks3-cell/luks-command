@@ -118,7 +118,7 @@
       '<div class="card"><div class="row space"><div><b>Master profile</b><p>'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</p><div class="muted">CV: '+esc(p.master_cv_file_name||"Master CV")+'</div></div><div><span class="pill">'+sourceRows.length+' enabled sources</span><span class="pill">'+sourceGroups.length+' source groups</span></div></div><div style="margin-top:8px">'+((p.preferred_roles||[]).slice(0,8).map(x=>'<span class="pill">'+esc(x)+'</span>').join(""))+'</div></div>'+
       '<div class="card"><div class="row space"><div><b>Search registry from your attached source list</b><div class="muted">The daily scan uses these sources plus newly discovered relevant employers.</div></div><button class="btn" onclick="showSourceRegistry()">View sources</button></div></div>'+
       '<h2>Best current matches</h2>'+jobTable(jobRows)+
-      '<h2>Recent scans</h2><div class="card" style="overflow:auto"><table><thead><tr><th>Date</th><th>Status</th><th>Sources</th><th>Found</th><th>Verified</th><th>Imported</th></tr></thead><tbody>'+
+      '<h2>Source registry</h2><div class="card"><div class="row"><input id="sourceFilter" class="input" style="max-width:360px" placeholder="Filter company or source" oninput="filterSourceRegistry()"><select id="sourceGroup" class="select" style="max-width:260px" onchange="filterSourceRegistry()"><option value="">All groups</option>'+[...new Set(sourceRows.map(s=>s.source_group).filter(Boolean))].map(g=>'<option value="'+esc(g)+'">'+esc(g)+'</option>').join("")+'</select></div><div style="overflow:auto;margin-top:10px"><table id="sourceRegistry"><thead><tr><th>Source</th><th>Group</th><th>Last checked</th><th>Open</th></tr></thead><tbody>'+sourceRows.map(s=>'<tr data-text="'+esc(((s.name||"")+" "+(s.source_group||"")).toLowerCase())+'" data-group="'+esc(s.source_group||"")+'"><td><b>'+esc(s.name)+'</b></td><td>'+esc(s.source_group||"")+'</td><td>'+((s.last_checked_at)?new Date(s.last_checked_at).toLocaleString():"Not yet")+'</td><td>'+((s.domain||"").startsWith("http")?'<button class="btn" onclick="openExternal(\''+s.domain+'\')">Open</button>':'<span class="muted">Search target</span>')+'</td></tr>').join("")+'</tbody></table></div></div><h2>Recent scans</h2><div class="card" style="overflow:auto"><table><thead><tr><th>Date</th><th>Status</th><th>Sources</th><th>Found</th><th>Verified</th><th>Imported</th></tr></thead><tbody>'+
       runRows.map(x=>'<tr><td>'+new Date(x.started_at).toLocaleString()+'</td><td>'+esc(x.status)+'</td><td>'+x.sources_checked+'</td><td>'+x.vacancies_found+'</td><td>'+x.verified_open+'</td><td>'+x.imported_count+'</td></tr>').join("")+
       '</tbody></table></div>';
   };
@@ -145,3 +145,13 @@
 
   if(user||localMode) render();
 })();
+
+window.filterSourceRegistry = function(){
+  const q=(E("sourceFilter")?.value||"").toLowerCase().trim();
+  const g=E("sourceGroup")?.value||"";
+  document.querySelectorAll("#sourceRegistry tbody tr").forEach(tr=>{
+    const textOk=!q||(tr.dataset.text||"").includes(q);
+    const groupOk=!g||tr.dataset.group===g;
+    tr.style.display=(textOk&&groupOk)?"":"none";
+  });
+};
