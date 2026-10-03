@@ -309,14 +309,29 @@
       if(holder) holder.innerHTML=liveProgressCard({status:"running",checked:0,total:0,found:0,verified:0,imported:0,message:"Connecting to the live job scanner…"});
 
       while(true){
-        const invoke=await db.functions.invoke("scan-jobs",{
-          body:{
-            scan_request_id:req.id,
-            run_id:runId,
-            offset:offset,
-            limit:8
+        let invoke=null;
+        let attempt=0;
+        while(attempt<3){
+          attempt++;
+          invoke=await db.functions.invoke("scan-jobs",{
+            body:{
+              scan_request_id:req.id,
+              run_id:runId,
+              offset:offset,
+              limit:2
+            }
+          });
+          if(!invoke.error) break;
+          const em=String(invoke.error.message||invoke.error);
+          if(attempt>=3 || !/non-2xx|546|resource|timeout|worker/i.test(em)) throw invoke.error;
+          if(holder){
+            holder.innerHTML=liveProgressCard({
+              status:"running",checked,total,found,verified,imported,rejected,
+              message:"A scan batch hit a temporary resource limit. Retrying automatically…"
+            });
           }
-        });
+          await new Promise(r=>setTimeout(r,1200*attempt));
+        }
 
         if(invoke.error) throw invoke.error;
         const data=invoke.data||{};
@@ -351,7 +366,7 @@
     }catch(err){
       console.error(err);
       const holder=E("scanRequestStatus");
-      if(holder) holder.innerHTML=liveProgressCard({status:"failed",checked,total,found,verified,imported,rejected,message:(err&&err.message)?err.message:String(err)});
+      if(holder) holder.innerHTML=liveProgressCard({status:"failed",checked,total,found,verified,imported,rejected,message:((err&&err.message)?err.message:String(err))+" — you can run the scan again and Luks Command will continue with smaller batches."});
       if(req&&req.id){
         await db.from("job_scan_requests").update({
           status:"failed",
