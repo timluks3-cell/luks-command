@@ -93,7 +93,7 @@
         '<div class="row space"><span class="muted">Scanner</span>'+statusChip(activeStatus)+'</div>'+
         '<div class="row space" style="margin-top:10px"><span class="muted">Authentication</span>'+statusChip("online")+'</div>'+
         '<div class="row space" style="margin-top:10px"><span class="muted">Database</span>'+statusChip("online")+'</div>'+
-        '<div class="row space" style="margin-top:10px"><span class="muted">Sources</span>'+statusChip(sources.length?"online":"standby")+'</div>'+
+        '<div class="row space" style="margin-top:10px"><span class="muted">Sources</span>'+statusChip(Number(last?.metadata?.failed_sources||0)>0?"error":(sources.length?"online":"standby"))+'</div>'+
       '</div></section></div>'+
       '<div id="scanRequestStatus">'+scanRequestCard(latestRequest)+'</div>'+
       '<div class="metric-grid">'+
@@ -160,6 +160,9 @@
     const runRows=runs.data||[], jobRows=jobs.data||[], p=profile.data||{}, sourceRows=sources.data||[], requestRows=requests.data||[], discoveryRows=discoveries.data||[];
     const latestRequest=requestRows[0]||null, sourceGroups=[...new Set(sourceRows.map(s=>s.source_group||"Other"))], last=runRows[0]||null;
     const scannerState=latestRequest&&["pending","running"].includes(latestRequest.status)?latestRequest.status:(last?.status||"standby");
+    const failedSources=Number(last?.metadata?.failed_sources||0);
+    const diagRows=Array.isArray(last?.metadata?.diagnostics)?last.metadata.diagnostics:[];
+    const failedDiagnostics=diagRows.filter(x=>!x.ok);
     E("view").innerHTML=
       '<div class="mission-header"><div><div class="kicker">LIVE SEARCH OPERATIONS</div><h1 class="command-title">Job Scanner Console</h1><div class="command-sub">Supabase-backed search, verification and match ranking.</div></div><div class="row">'+statusChip(scannerState)+'<button id="scanNowBtn" class="mission-run" onclick="requestJobScan()">RUN JOB SCAN</button><button class="btn" onclick="openSources()">Open sources manually</button></div></div>'+
       '<div id="scanRequestStatus">'+scanRequestCard(latestRequest)+'</div>'+
@@ -169,6 +172,7 @@
         metric(last?last.sources_checked:sourceRows.length,"Sources Checked")+
         metric(last?last.imported_count:0,"Imported")+
         metric(last?last.rejected_count:0,"Rejected")+
+        metric(failedSources,"Source Errors")+
         metric(jobRows.length,"Current Vacancies")+
       '</div>'+
       '<div class="scan-console"><div class="mission-panel"><div class="panel-title">Career Profile / Scan Targeting</div><div style="font-size:19px;font-weight:800;margin:10px 0">'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</div><div class="muted">Master CV: '+esc(p.master_cv_file_name||"Master CV")+'</div><div style="margin-top:14px" class="panel-title">Target Roles</div><div id="roleChips" class="row" style="margin-top:10px">'+((p.preferred_roles||[]).map(x=>roleChip(x)).join(""))+'</div><div class="row" style="margin-top:12px"><input id="newRoleInput" class="input" style="max-width:360px" placeholder="Add role, e.g. BIM Specialist" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addPreferredRole()}"><button class="btn primary" onclick="addPreferredRole()">Add role</button></div></div>'+
@@ -176,6 +180,7 @@
       '<h2>Best Current Matches</h2>'+jobTable(jobRows)+
       '<h2>All Job Postings Found</h2><div class="card"><div class="jobs-toolbar"><input id="discoveryFilter" class="input" style="max-width:360px" placeholder="Filter discovered postings" oninput="filterDiscoveries()"><select id="discoveryStatus" class="select" style="max-width:220px" onchange="filterDiscoveries()"><option value="">All verification states</option><option value="open">Verified open</option><option value="unverified">Unverified</option><option value="closed">Closed</option><option value="expired">Expired</option><option value="blocked">Blocked</option><option value="error">Error</option></select></div>'+discoveryTable(discoveryRows)+'</div>'+
       '<h2>Job Source Status</h2><div class="source-list">'+sourceRows.slice(0,24).map(sourceNode).join("")+'</div>'+
+      (failedDiagnostics.length?'<h2>Source Errors — Last Scan</h2><div class="card"><div class="muted" style="margin-bottom:10px">These sources were processed but not successfully read, so they are not counted as checked.</div><div class="source-list">'+failedDiagnostics.map(d=>'<div class="source-node"><div class="row space"><div class="name">'+esc(d.source||"Source")+'</div>'+statusChip("error")+'</div><div class="stamp">'+esc(d.provider||"generic")+' · '+esc(d.error||"Source could not be read")+'</div></div>').join("")+'</div></div>':'')+
       '<h2>Recent Scan Runs</h2><div class="card" style="overflow:auto"><table><thead><tr><th>Date</th><th>Status</th><th>Sources</th><th>Found</th><th>Verified</th><th>Imported</th></tr></thead><tbody>'+
       runRows.map(x=>'<tr><td>'+new Date(x.started_at).toLocaleString()+'</td><td>'+statusChip(x.status)+'</td><td>'+x.sources_checked+'</td><td>'+x.vacancies_found+'</td><td>'+x.verified_open+'</td><td>'+x.imported_count+'</td></tr>').join("")+
       '</tbody></table></div>';
