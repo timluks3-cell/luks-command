@@ -241,7 +241,8 @@
       '</div>'+
       '<div class="card"><div class="panel-title">How scan results are counted</div><p class="muted" style="margin-bottom:0"><b>Filtered Out</b> means candidate pages that were checked but did not qualify as a current matching vacancy. This can include generic career pages, expired or closed jobs, internships, student, trainee, elev or praktik roles, unrelated positions, or pages without enough evidence that the vacancy is still open. <b>Source Errors</b> means an entire source could not be read successfully.</p></div>'+
       '<div class="scan-console"><div class="mission-panel"><div class="panel-title">Career Profile / Scan Targeting</div><div style="font-size:19px;font-weight:800;margin:10px 0">'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</div><div class="muted">Master CV: '+esc(p.master_cv_file_name||"Master CV")+'</div><div style="margin-top:14px" class="panel-title">Target Roles</div><div id="roleChips" class="row" style="margin-top:10px">'+((p.preferred_roles||[]).map(x=>roleChip(x)).join(""))+'</div><div class="row" style="margin-top:12px"><input id="newRoleInput" class="input" style="max-width:360px" placeholder="Add role, e.g. BIM Specialist" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addPreferredRole()}"><button class="btn primary" onclick="addPreferredRole()">Add role</button></div></div>'+
-      '<div class="mission-panel"><div class="panel-title">Registry Status</div><div class="metric-grid" style="grid-template-columns:1fr 1fr;margin-top:14px">'+metric(sourceRows.length,"Enabled Sources")+metric(sourceGroups.length,"Source Groups")+'</div><button class="btn" onclick="showSourceRegistry()">View source registry</button></div></div>'+
+      categorySummary(p.preferred_roles||[])+
+       '<div class="mission-panel"><div class="panel-title">Registry Status</div><div class="metric-grid" style="grid-template-columns:1fr 1fr;margin-top:14px">'+metric(sourceRows.length,"Enabled Sources")+metric(sourceGroups.length,"Source Groups")+'</div><button class="btn" onclick="showSourceRegistry()">View source registry</button></div></div>'+
       '<h2>Best Current Matches <span id="bestMatchesCount" class="muted"></span></h2><div class="jobs-toolbar"><select id="matchOrder" class="select" onchange="refreshBestMatches()"><option value="score">Best match</option><option value="newest">Date searched: newest</option><option value="oldest">Date searched: oldest</option><option value="applied">Applied first</option><option value="closed">Closed first</option></select><select id="matchStatus" class="select" onchange="refreshBestMatches()"><option value="current">Current jobs</option><option value="applied">Applied</option><option value="closed">Closed</option><option value="all">All Denmark statuses</option><option value="review">Review missing locations</option></select><span class="muted">Denmark only for current vacancies</span></div><div id="bestMatchesGrid"></div>'+
       '<h2>All Job Postings Found</h2><div class="card"><div class="jobs-toolbar"><input id="discoveryFilter" class="input" style="max-width:360px" placeholder="Filter discovered postings" oninput="filterDiscoveries()"><select id="discoveryStatus" class="select" style="max-width:220px" onchange="filterDiscoveries()"><option value="">All verification states</option><option value="open">Verified open</option><option value="unverified">Unverified</option><option value="closed">Closed</option><option value="expired">Expired</option><option value="blocked">Blocked</option><option value="error">Error</option></select></div>'+discoveryTable(discoveryRows)+'</div>'+
       '<h2>Job Source Status</h2><div class="source-list">'+sourceRows.slice(0,24).map(sourceNode).join("")+'</div>'+
@@ -281,6 +282,17 @@
       tr.style.display=(textOk&&statusOk)?"":"none";
     });
   };
+
+  function categorySummary(preferredRoles){
+    const configured=new Set((preferredRoles||[]).map(x=>String(x).toLocaleLowerCase()));
+    const groups=window.LUKS_JOB_CATEGORIES||{};
+    return '<div class="panel-title" style="margin-top:18px">Job-search categories · Denmark only</div>'+
+      '<p class="muted">Selected categories are part of your Supabase career profile. Existing roles are retained.</p>'+
+      Object.entries(groups).map(([name,titles])=>{
+        const included=titles.filter(x=>configured.has(x.toLocaleLowerCase()));
+        return '<details style="margin:8px 0;padding:10px;border:1px solid #21425a;border-radius:8px"><summary style="cursor:pointer">'+esc(name)+' <span class="muted">('+included.length+'/'+titles.length+' configured)</span></summary><div class="row" style="margin-top:9px">'+titles.map(t=>'<span class="pill" style="'+(configured.has(t.toLocaleLowerCase())?'':'opacity:.45')+'">'+esc(t)+'</span>').join('')+'</div></details>';
+      }).join('');
+  }
 
   function roleChip(role){
     const safe=esc(role);
