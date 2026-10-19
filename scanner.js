@@ -146,17 +146,63 @@
     return career();
   };
 
+
+
+  function canonicalJobUrl(raw){
+    try {
+      const u=new URL(raw);u.hash="";
+      ["utm_source","utm_medium","utm_campaign","utm_content","utm_term","fbclid","gclid"].forEach(k=>u.searchParams.delete(k));
+      return (u.hostname+u.pathname+u.search).toLowerCase();
+    } catch {return String(raw||"").trim().toLowerCase();}
+  }
+  window.verifyTrackedJob=async function(id){
+    const j=careerJobs.find(x=>String(x.id)===String(id));
+    if(!j?.job_url)return msg("No job URL available","bad");
+    const response=await db.functions.invoke("verify-job",{body:{url:j.job_url,published_at:j.published_at,deadline:j.deadline}});
+    if(response.error||!response.data)return msg(response.error?.message||"Verification failed","bad");
+    const d=response.data;
+    if(["blocked","error","unverified"].includes(d.status)){msg("Verification inconclusive; job status preserved.","bad");return;}
+    const update=await db.from("jobs").update({verified_open:!!d.verified_open,verification_status:d.status,verification_evidence:d.reason||"",verified_at:new Date().toISOString()}).eq("id",id);
+    if(update.error)return msg(update.error.message,"bad");
+    await career();msg("Vacancy verification updated","good");
+  };
+
+  let careerJobs=[];
+  const TRACK_STAGES=["discovered","saved","ready","applied","interview","offer","rejected","closed"];
+  window.careerFilter=function(){
+    const q=(E("careerSearch")?.value||"").trim().toLowerCase(),stage=E("careerStage")?.value||"",region=E("careerRegion")?.value||"",mode=E("careerWorkMode")?.value||"",min=Number(E("careerScore")?.value||0),order=E("careerSort")?.value||"score";
+    let rows=careerJobs.filter(j=>(!q||[j.title,j.company,j.location,j.source_name].join(" ").toLowerCase().includes(q))&&(!stage||String(j.status||"discovered").toLowerCase()===stage)&&(!region||String(j.location||"").toLowerCase().includes(region))&&(!mode||String(j.work_mode||"").toLowerCase().includes(mode))&&Number(j.match_score||0)>=min);
+    rows.sort((a,b)=>order==="newest"?searchedDate(b)-searchedDate(a):order==="deadline"?(Date.parse(a.deadline)||Infinity)-(Date.parse(b.deadline)||Infinity):Number(b.match_score||0)-Number(a.match_score||0));
+    if(E("careerResults")) E("careerResults").innerHTML=jobTable(rows)+'<div class="card"><b>Verify vacancies</b><p class="muted">On-demand link check; inconclusive responses leave history unchanged.</p>'+rows.slice(0,30).map(j=>'<div class="row space" style="padding:7px 0"><span>'+esc(j.title||"Vacancy")+' · '+esc(j.company||"")+'</span><button class="btn" onclick="verifyTrackedJob(\''+j.id+'\')">Verify</button></div>').join("")+'</div>';
+    if(E("careerCount")) E("careerCount").textContent=rows.length+" jobs";
+  };
+  function trackingBoard(rows){
+    return '<div class="card"><div class="panel-title">Application Tracking Board</div><div class="muted">Move jobs between stages using the dropdown. Existing history is preserved.</div><div style="display:flex;gap:12px;overflow-x:auto;padding-top:14px">'+TRACK_STAGES.map(stage=>{
+      const items=rows.filter(j=>String(j.status||"discovered").toLowerCase()===stage);
+      return '<section style="min-width:215px;max-width:250px;flex:1;background:var(--panel,#f1f5f9);border-radius:10px;padding:10px"><b>'+esc(stage.toUpperCase())+' ('+items.length+')</b>'+items.slice(0,40).map(j=>'<div style="padding:8px;background:var(--card,#fff);margin-top:8px;border-radius:8px"><b>'+esc(j.title||"Job")+'</b><div class="muted">'+esc(j.company||"")+'</div><select class="select" style="width:100%;margin-top:5px" onchange="setJobStatus(\''+j.id+'\',this.value)">'+TRACK_STAGES.map(st=>'<option value="'+st+'"'+(st===stage?' selected':'')+'>'+esc(st)+'</option>').join("")+'</select></div>').join("")+'</section>';
+    }).join("")+'</div></div>';
+  }
+
   window.career = async function(){
-    let jobs=[];
-    if(!localMode){
-      const r=await db.from("jobs").select("*").order("match_score",{ascending:false});
-      jobs=r.data||[];
-    }
-    const current=jobs.filter(j=>denmarkJob(j)&&j.verified_open&&!closedJob(j));
+    if(localMode){E("view").innerHTML='<h1>Career Operations</h1><p>Sign in for job tracking.</p>';return;}
+    const r=await db.from("jobs").select("*").order("discovered_at",{ascending:false}).limit(1000);
+    if(r.error){msg(r.error.message,"bad");return;}
+    careerJobs=r.data||[];
+    const seen=new Set();careerJobs=careerJobs.filter(j=>{const k=canonicalJobUrl(j.job_url);if(!k)return true;if(seen.has(k))return false;seen.add(k);return true;});
+    const active=careerJobs.filter(j=>denmarkJob(j)&&j.verified_open&&!closedJob(j));
     E("view").innerHTML=
-      '<div class="mission-header"><div><div class="kicker">OPPORTUNITY CONTROL</div><h1 class="command-title">Career Operations</h1><div class="command-sub">Review, verify and action BIM / construction opportunities.</div></div><div class="row"><button class="mission-run" onclick="requestJobScan()">RUN JOB SCAN</button><button class="btn" onclick="go(\'scanner\')">Scanner console</button><button class="btn" onclick="openSources()">Source websites</button></div></div>'+
-      '<div class="card"><div class="row space"><div><div class="panel-title">Current-vacancy protocol</div><p class="muted">Only verified-open jobs are treated as active targets. Closed and expired roles remain visible in the database for history.</p></div>'+statusChip("online")+'</div></div>'+
-      (localMode?'':'<div class="jobs-toolbar"><input id="jobFilter" class="input" style="max-width:360px" placeholder="Filter title, company, location or source" oninput="filterJobRows()"><select id="scoreFilter" class="select" style="max-width:180px" onchange="filterJobRows()"><option value="0">All match scores</option><option value="75">75%+</option><option value="85">85%+</option><option value="90">90%+</option></select></div><h2>Target Opportunities / Current Vacancies</h2>'+jobTable(current)+'<h2>Tracked History</h2>'+jobTable(jobs.filter(j=>!current.includes(j))));
+      '<div class="mission-header"><div><div class="kicker">OPPORTUNITY CONTROL</div><h1 class="command-title">Career Operations</h1><div class="command-sub">Denmark job filtering and application tracking</div></div><div class="row"><button class="mission-run" onclick="requestJobScan()">RUN JOB SCAN</button><button class="btn" onclick="go(\'scanner\')">Scanner console</button></div></div>'+
+      trackingBoard(careerJobs)+
+      '<h2>Advanced Job Filters <span id="careerCount" class="muted"></span></h2>'+
+      '<div class="card"><div class="jobs-toolbar" style="display:flex;flex-wrap:wrap;gap:10px">'+
+      '<input id="careerSearch" class="input" placeholder="Title, company, location" oninput="careerFilter()">'+
+      '<select id="careerStage" class="select" onchange="careerFilter()"><option value="">All stages</option>'+TRACK_STAGES.map(x=>'<option value="'+x+'">'+x+'</option>').join("")+'</select>'+
+      '<select id="careerRegion" class="select" onchange="careerFilter()"><option value="">All regions</option><option value="københavn">Copenhagen</option><option value="copenhagen">Copenhagen (English)</option><option value="sjælland">Zealand</option><option value="zealand">Zealand (English)</option><option value="fyn">Funen</option><option value="jylland">Jutland</option></select>'+
+      '<select id="careerWorkMode" class="select" onchange="careerFilter()"><option value="">All work modes</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option></select>'+
+      '<select id="careerScore" class="select" onchange="careerFilter()"><option value="0">All matches</option><option value="75">75%+</option><option value="85">85%+</option><option value="90">90%+</option></select>'+
+      '<select id="careerSort" class="select" onchange="careerFilter()"><option value="score">Best match</option><option value="newest">Most recently discovered</option><option value="deadline">Upcoming deadline</option></select></div></div>'+
+      '<div id="careerResults"></div>';
+    careerFilter();
   };
 
   window.scanner = async function(){
