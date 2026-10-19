@@ -147,13 +147,33 @@
   };
 
 
+
+  function canonicalJobUrl(raw){
+    try {
+      const u=new URL(raw);u.hash="";
+      ["utm_source","utm_medium","utm_campaign","utm_content","utm_term","fbclid","gclid"].forEach(k=>u.searchParams.delete(k));
+      return (u.hostname+u.pathname+u.search).toLowerCase();
+    } catch {return String(raw||"").trim().toLowerCase();}
+  }
+  window.verifyTrackedJob=async function(id){
+    const j=careerJobs.find(x=>String(x.id)===String(id));
+    if(!j?.job_url)return msg("No job URL available","bad");
+    const response=await db.functions.invoke("verify-job",{body:{url:j.job_url,published_at:j.published_at,deadline:j.deadline}});
+    if(response.error||!response.data)return msg(response.error?.message||"Verification failed","bad");
+    const d=response.data;
+    if(["blocked","error","unverified"].includes(d.status)){msg("Verification inconclusive; job status preserved.","bad");return;}
+    const update=await db.from("jobs").update({verified_open:!!d.verified_open,verification_status:d.status,verification_evidence:d.reason||"",verified_at:new Date().toISOString()}).eq("id",id);
+    if(update.error)return msg(update.error.message,"bad");
+    await career();msg("Vacancy verification updated","good");
+  };
+
   let careerJobs=[];
   const TRACK_STAGES=["discovered","saved","ready","applied","interview","offer","rejected","closed"];
   window.careerFilter=function(){
     const q=(E("careerSearch")?.value||"").trim().toLowerCase(),stage=E("careerStage")?.value||"",region=E("careerRegion")?.value||"",mode=E("careerWorkMode")?.value||"",min=Number(E("careerScore")?.value||0),order=E("careerSort")?.value||"score";
     let rows=careerJobs.filter(j=>(!q||[j.title,j.company,j.location,j.source_name].join(" ").toLowerCase().includes(q))&&(!stage||String(j.status||"discovered").toLowerCase()===stage)&&(!region||String(j.location||"").toLowerCase().includes(region))&&(!mode||String(j.work_mode||"").toLowerCase().includes(mode))&&Number(j.match_score||0)>=min);
     rows.sort((a,b)=>order==="newest"?searchedDate(b)-searchedDate(a):order==="deadline"?(Date.parse(a.deadline)||Infinity)-(Date.parse(b.deadline)||Infinity):Number(b.match_score||0)-Number(a.match_score||0));
-    if(E("careerResults")) E("careerResults").innerHTML=jobTable(rows);
+    if(E("careerResults")) E("careerResults").innerHTML=jobTable(rows)+'<div class="card"><b>Verify vacancies</b><p class="muted">On-demand link check; inconclusive responses leave history unchanged.</p>'+rows.slice(0,30).map(j=>'<div class="row space" style="padding:7px 0"><span>'+esc(j.title||"Vacancy")+' · '+esc(j.company||"")+'</span><button class="btn" onclick="verifyTrackedJob(\''+j.id+'\')">Verify</button></div>').join("")+'</div>';
     if(E("careerCount")) E("careerCount").textContent=rows.length+" jobs";
   };
   function trackingBoard(rows){
@@ -168,6 +188,7 @@
     const r=await db.from("jobs").select("*").order("discovered_at",{ascending:false}).limit(1000);
     if(r.error){msg(r.error.message,"bad");return;}
     careerJobs=r.data||[];
+    const seen=new Set();careerJobs=careerJobs.filter(j=>{const k=canonicalJobUrl(j.job_url);if(!k)return true;if(seen.has(k))return false;seen.add(k);return true;});
     const active=careerJobs.filter(j=>denmarkJob(j)&&j.verified_open&&!closedJob(j));
     E("view").innerHTML=
       '<div class="mission-header"><div><div class="kicker">OPPORTUNITY CONTROL</div><h1 class="command-title">Career Operations</h1><div class="command-sub">Denmark job filtering and application tracking</div></div><div class="row"><button class="mission-run" onclick="requestJobScan()">RUN JOB SCAN</button><button class="btn" onclick="go(\'scanner\')">Scanner console</button></div></div>'+
