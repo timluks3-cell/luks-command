@@ -40,7 +40,7 @@
   const danishPlaces=/\b(denmark|danmark|dk|københavn|copenhagen|sjælland|zealand|fyn|jylland|ishøj|greve|taastrup|hvidovre|brøndby|glostrup|rødovre|herlev|ballerup|søborg|lyngby|gentofte|hillerød|helsingør|frederiksberg|valby|kastrup|roskilde|køge|holbæk|ringsted|næstved|slagelse|kalundborg|odense|svendborg|fredericia|vejle|kolding|esbjerg|aarhus|århus|randers|silkeborg|viborg|horsens|aalborg|ålborg|hjørring|frederikshavn|herning|holstebro|sønderborg|haderslev|aabenraa|vordingborg|allerød|birkerød|farum|hørsholm|frederikssund|sorø|solrød|rønne|bornholm)\b/i;
   function denmarkJob(j){const country=String(j.country_code||j.country||"").toLowerCase().trim();return country?["dk","dnk","denmark","danmark"].includes(country):danishPlaces.test(String(j.location||""));}
   function closedJob(j){return ["closed","dismissed"].includes(String(j.status||"").toLowerCase())||["closed","expired"].includes(String(j.verification_status||"").toLowerCase());}
-  function searchedDate(j){return Date.parse(j.last_searched_at||j.last_scanned_at||j.scanned_at||j.last_seen_at||j.created_at||j.published_at||"")||0;}
+  function searchedDate(j){return Date.parse(j.last_searched_at||j.last_scanned_at||j.scanned_at||j.last_seen_at||j.discovered_at||j.created_at||j.published_at||"")||0;}
   let storedMatches=[];
   window.refreshBestMatches=function(){
     const mode=E("matchStatus")?.value||"current",order=E("matchOrder")?.value||"score";
@@ -185,7 +185,7 @@
       '<div id="scanRequestStatus">'+scanRequestCard(latestRequest)+'</div>'+
       '<div class="metric-grid">'+
         metric(last?last.vacancies_found:0,"Jobs Found")+
-        metric(jobRows.filter(x=>(x.match_score||0)>=75).length,"Strong Matches")+
+        metric(jobRows.filter(x=>x.verified_open&&!closedJob(x)&&(x.match_score||0)>=75).length,"Strong Matches")+
         metric(last?last.sources_checked:sourceRows.length,"Sources Checked")+
         metric(last?last.imported_count:0,"Imported")+
         metric(last?last.rejected_count:0,"Filtered Out")+
