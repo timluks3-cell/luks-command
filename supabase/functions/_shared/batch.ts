@@ -4,22 +4,24 @@ function iso(value: unknown) {
   const date = new Date(value as string | number);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
-export function prepareSourceResult(result: any) {
+export function prepareSourceResult(result: any, now=Date.now()) {
   const checked = Array.isArray(result.checked) ? result.checked : [];
+  const expiredDeadline=(job:any)=>{const deadline=iso(job.deadline);return deadline!==null&&Date.parse(deadline)<now;};
   const candidates = checked.filter((job: any) => inDenmark(job.location, job.country))
     .filter((job: any) => /^https?:\/\//i.test(String(job.url || '')))
     .map((job: any) => ({
       title: String(job.title || 'Job opportunity').slice(0, 500), company: job.companyOverride || result.source.name,
-      job_url: job.url, location: job.country && !inDenmark(job.location) ? [job.location,'Denmark'].filter(Boolean).join(', ') : (job.location || null), country_code: 'DK', verified: !!job.verified,
+      job_url: job.url, location: job.country && !inDenmark(job.location) ? [job.location,'Denmark'].filter(Boolean).join(', ') : (job.location || null), country_code: 'DK', verified: !!job.verified&&!expiredDeadline(job),
       score: Math.min(100, Math.max(0, Number(job.score) || 0)),
-      reason: String(job.reason || '').slice(0, 4000), snippet: String(job.snippet || '').slice(0, 1800),
+      reason: expiredDeadline(job)?'Application deadline has passed':String(job.reason || '').slice(0, 4000), snippet: String(job.snippet || '').slice(0, 1800),
       published_at: job.publishedRaw ? parseCsodDate(job.publishedRaw) : iso(job.publishedAt), deadline: iso(job.deadline),
     }));
   const rejection_reasons:Record<string,number>={};
   const rejected_samples:any[]=[];
   for(const job of checked){
     let reason='';
-    if(!job.verified) reason=String(job.reason||'unverified_vacancy');
+    if(expiredDeadline(job)) reason='Application deadline has passed';
+    else if(!job.verified) reason=String(job.reason||'unverified_vacancy');
     else if(!inDenmark(job.location,job.country)) reason=job.location||job.country?'outside_Denmark_or_conflicting_evidence':'missing_workplace_evidence';
     else if(!/^https?:\/\//i.test(String(job.url||''))) reason='invalid_url';
     if(reason){
