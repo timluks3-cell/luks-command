@@ -150,50 +150,69 @@ function inDenmark(location, country) {
     return '<div class="source-node"><div class="row space"><div class="name">'+esc(s.name||"Source")+'</div>'+st+'</div><div class="stamp">'+esc(s.source_group||"Other")+' · '+(s.last_checked_at?new Date(s.last_checked_at).toLocaleString():"Not checked yet")+'</div></div>';
   }
 
+  function dashboardAttention(rows,now=Date.now()){
+    const available=vacancyRows(rows).filter(j=>denmarkJob(j)&&verifiedCurrent(j,now));
+    const deadline=j=>Date.parse(j.deadline||'');
+    return {
+      due:available.filter(j=>!historicalJob(j)&&Number.isFinite(deadline(j))&&deadline(j)<=now+7*86400000).sort((a,b)=>deadline(a)-deadline(b)),
+      saved:available.filter(j=>['saved','ready'].includes(String(j.status||'').toLowerCase())),
+      followups:available.filter(j=>{
+        const updated=Date.parse(j.updated_at||j.created_at||'');
+        return String(j.status||'').toLowerCase()==='applied'&&Number.isFinite(updated)&&updated<=now-7*86400000;
+      })
+    };
+  }
+  let requestedCareerStage='';
+  window.openCurrentJobs=function(){showAppliedInCurrent=false;go('scanner');};
+  window.openCareerStage=function(stage){requestedCareerStage=TRACK_STAGES.includes(stage)?stage:'';go('career');};
+  function dashboardVacancyCard(j){
+    return '<article class="vacancy dashboard-vacancy"><div class="vacancy-top"><div><div class="job-title">'+esc(j.title||'Vacancy')+'</div><div class="company">'+esc(j.company||'Unknown company')+'</div></div><span class="match-score '+(j.match_score==null?'unknown':'')+'">'+(j.match_score==null?'No score':esc(j.match_score)+'%')+'</span></div>'+
+      '<div class="muted">'+esc(safeText(j.location))+' · '+esc(safeText(j.work_mode,'Work mode unspecified'))+'</div>'+
+      '<div class="dashboard-job-facts"><span><b>Deadline</b> '+esc(safeDate(j.deadline))+'</span><span class="good">Verified '+esc(safeDate(j.verified_at))+'</span></div>'+
+      '<div class="job-actions">'+(j.job_url?'<button class="btn primary" onclick="openExternal(\''+esc(j.job_url)+'\')">Open advert</button>':'')+'<button class="btn" onclick="setJobStatus(\''+esc(j.id)+'\',\'applied\')">Mark applied</button></div></article>';
+  }
+  function attentionPanel(title,rows,description,action,actionLabel){
+    return '<section class="card attention-card"><div class="row space"><h3>'+esc(title)+'</h3><span class="pill">'+rows.length+'</span></div><p class="muted">'+esc(description)+'</p>'+
+      (rows.length?'<ul class="attention-list">'+rows.slice(0,3).map(j=>'<li><b>'+esc(j.title||'Vacancy')+'</b><span class="muted">'+esc(j.company||'')+(title==='Closing soon'?' · '+esc(safeDate(j.deadline)):'')+'</span></li>').join('')+'</ul>':'<p class="muted attention-empty">Nothing to review here.</p>')+
+      '<button class="btn" onclick="'+action+'">'+esc(actionLabel)+'</button></section>';
+  }
   window.dashboard = async function(){
     if(localMode){
-      E("view").innerHTML='<div class="mission-header"><div><div class="kicker">LUKS COMMAND — MISSION CONTROL</div><h1 class="command-title">Career Operations</h1><div class="command-sub">Sign in to see your saved jobs, track applications and scan Danish vacancies.</div></div><button class="btn" onclick="signOut()">Exit local mode</button></div><div class="grid"><div class="card"><div class="panel-title">Career</div><p class="muted">Open source registry and target vacancies.</p></div><div class="card"><div class="panel-title">Job Scanner</div><p class="muted">Live scanning requires sign-in.</p></div><div class="card"><div class="panel-title">Projects</div><p class="muted">Continue project operations.</p></div><div class="card"><div class="panel-title">My Sites</div><p class="muted">Launch your connected web apps.</p><button class="btn primary" onclick="go(\'sites\')">Open sites</button></div></div>';
+      E('view').innerHTML='<div class="mission-header"><div><div class="kicker">YOUR WORKSPACE</div><h1 class="command-title">Career dashboard</h1><div class="command-sub">Sign in to see current Danish vacancies and your application progress.</div></div><button class="btn" onclick="signOut()">Exit local mode</button></div><div class="empty-state"><strong>Your job-search overview</strong>Live vacancies, deadlines and applications appear here after sign-in.</div><h2>Quick links</h2><div class="row"><button class="btn" onclick="go(\'projects\')">Projects</button><button class="btn" onclick="go(\'sites\')">My sites</button></div>';
       return;
     }
-    const [j,p,t,s,r,src,apps]=await Promise.all([
+    const [j,s,r,src]=await Promise.all([
       loadJobs(),
-      db.from("projects").select("*").order("created_at"),
-      db.from("tasks").select("*").neq("status","completed"),
-      db.from("job_scan_runs").select("*").order("started_at",{ascending:false}).limit(1),
-      db.from("job_scan_requests").select("*").order("requested_at",{ascending:false}).limit(1),
-      db.from("job_sources").select("name,domain,source_group,enabled,last_checked_at,useful_hits,rejected_hits").eq("enabled",true).order("last_checked_at",{ascending:false}).limit(12),
-      db.from("applications").select("id")
+      db.from('job_scan_runs').select('*').order('started_at',{ascending:false}).limit(1),
+      db.from('job_scan_requests').select('*').order('requested_at',{ascending:false}).limit(1),
+      db.from('job_sources').select('name,domain,source_group,enabled,last_checked_at,useful_hits,rejected_hits').eq('enabled',true).order('last_checked_at',{ascending:false}).limit(12)
     ]);
-    const jobs=vacancyRows(j.data||[]), projects=p.data||[], tasks=t.data||[], sources=src.data||[];
-    const last=s.data&&s.data[0]?s.data[0]:null;
-    const latestRequest=r.data&&r.data[0]?r.data[0]:null;
+    const jobs=vacancyRows(j.data||[]),sources=src.data||[],last=s.data?.[0]||null,latestRequest=r.data?.[0]||null;
     const current=jobs.filter(currentUnapplied).sort((a,b)=>(b.match_score||0)-(a.match_score||0));
-    const strong=current.filter(x=>(x.match_score||0)>=75);
-    const appliedJobs=jobs.filter(x=>String(x.status||"").toLowerCase()==="applied").length;
-    const applications=Math.max(appliedJobs,(apps.data||[]).length);
-    const closed=jobs.filter(x=>["closed","dismissed"].includes(String(x.status||"").toLowerCase())||["closed","expired"].includes(String(x.verification_status||"").toLowerCase())).length;
-    const activeStatus=latestRequest&&["pending","running"].includes(latestRequest.status)?latestRequest.status:(last?.status||"standby");
-    E("view").innerHTML=
-      '<div class="mission-header"><div><div class="kicker">LUKS COMMAND — MISSION CONTROL</div><h1 class="command-title">Career Mission Dashboard</h1><div class="command-sub">BIM & construction opportunity intelligence · Copenhagen / Zealand / Denmark</div></div><div class="row">'+statusChip(activeStatus)+'<button class="btn" onclick="signOut()">Sign out</button></div></div>'+
-      '<div class="scan-console"><section class="scan-hero"><div class="row space"><div><div class="panel-title">Job Scan Status</div><div style="font-size:24px;font-weight:850;margin:9px 0">'+(latestRequest&&["pending","running"].includes(latestRequest.status)?"SCAN IN PROGRESS":last?"SYSTEM READY":"READY FOR FIRST SCAN")+'</div></div>'+statusChip(activeStatus)+'</div><div class="signal">'+esc(latestRequest?.message||(last?("Last scan completed "+new Date(last.started_at).toLocaleString()+". "+(last.summary||"Scanner standing by.")):"Run a full-source scan across the enabled source registry. Verified vacancies will be ranked against your career profile."))+'</div><div style="margin-top:16px"><button id="dashboardScanBtn" class="mission-run" onclick="requestJobScan()">RUN JOB SCAN</button> <button class="btn" onclick="go(\'scanner\')">Open scanner console</button></div></section>'+
-      '<section class="mission-panel"><div class="panel-title">Mission Telemetry</div><div style="margin-top:12px">'+
-        '<div class="row space"><span class="muted">Scanner</span>'+statusChip(activeStatus)+'</div>'+
-        '<div class="row space" style="margin-top:10px"><span class="muted">Authentication</span>'+statusChip("online")+'</div>'+
-        '<div class="row space" style="margin-top:10px"><span class="muted">Database</span>'+statusChip("online")+'</div>'+
-        '<div class="row space" style="margin-top:10px"><span class="muted">Sources</span>'+statusChip(Number(last?.metadata?.failed_sources||0)>0?"error":(sources.length?"online":"standby"))+'</div>'+
-      '</div></section></div>'+
-      '<div id="scanRequestStatus" role="status" aria-live="polite">'+scanRequestCard(latestRequest)+'</div>'+
-      '<div class="metric-grid">'+
-        metric(last?.vacancies_found||0,"Jobs Found")+
-        metric(strong.length,"Strong Matches")+
-        metric(last?.sources_checked||sources.length,"Sources Checked")+
-        metric(applications,"Applications")+
-        metric(closed,"Closed Jobs")+
-        metric(current.length,"Target Opportunities")+
-      '</div>'+
-      '<h2>Target Opportunities / Current Vacancies</h2><div class="vacancy-grid">'+(current.slice(0,8).map(vacancyCard).join("")||'<div class="card muted">No verified current vacancies yet. Run a scan to refresh opportunities.</div>')+'</div>'+
-      '<h2>Job Source Status</h2><div class="source-list">'+(sources.map(sourceNode).join("")||'<div class="card muted">No enabled sources found.</div>')+'</div>'+
-      '<h2>My Sites / Projects</h2><div class="projects-sites"><div><div class="panel-title" style="margin-bottom:10px">Projects</div><div class="grid">'+projects.map(projectCard).join("")+'</div></div><div><div class="panel-title" style="margin-bottom:10px">Sites</div><div class="grid">'+MY_SITES.map(siteCard).join("")+'</div></div></div>';
+    const count=stage=>jobs.filter(j=>String(j.status||'').toLowerCase()===stage).length;
+    const active=latestRequest&&['pending','running'].includes(latestRequest.status);
+    const activeStatus=active?latestRequest.status:(last?.status||'standby');
+    const attention=dashboardAttention(jobs),sourceErrors=Number(last?.metadata?.failed_sources||0);
+    const scanError=s.error||r.error||src.error;
+    E('view').innerHTML=
+      '<div class="mission-header dashboard-header"><div><div class="kicker">YOUR JOB SEARCH · DENMARK</div><h1 class="command-title">Career dashboard</h1><div class="command-sub">Current opportunities and your next steps.</div></div><div class="row"><span id="scannerLiveState">'+statusChip(activeStatus)+'</span><button id="dashboardScanBtn" class="btn primary" onclick="requestJobScan()">Run job scan</button><button class="btn" onclick="signOut()">Sign out</button></div></div>'+
+      '<div class="dashboard-summary" aria-label="Your tracked jobs">'+metric(current.length,'Current vacancies')+metric(current.filter(j=>(j.match_score||0)>=75).length,'Strong matches · 75%+')+metric(count('applied'),'Applied')+metric(count('interview'),'Interviews')+'</div>'+
+      '<div class="section-heading"><div><h2>Best current jobs</h2><p class="muted">Verified within 7 days · Expired and applied jobs excluded</p></div><button class="btn" onclick="openCurrentJobs()">View all '+current.length+' jobs</button></div>'+
+      '<div class="vacancy-grid dashboard-jobs">'+(current.slice(0,6).map(dashboardVacancyCard).join('')||'<div class="empty-state"><strong>No verified current matches</strong>Run a scan to refresh available vacancies.</div>')+'</div>'+
+      '<h2>Needs attention</h2><div class="attention-grid">'+
+        attentionPanel('Closing soon',attention.due,'Current vacancies with a deadline in the next 7 days.',"openCurrentJobs()",'Review vacancies')+
+        attentionPanel('Saved and ready',attention.saved,'Current jobs you have shortlisted for an application.',"go('career')",'Review shortlisted jobs')+
+        attentionPanel('Follow-up review',attention.followups,'Applied jobs with no tracking update for 7+ days. Review whether a follow-up is appropriate.',"openCareerStage('applied')",'Review applications')+'</div>'+
+      '<div class="section-heading"><div><h2>Application progress</h2><p class="muted">Tracked jobs by stage · Includes your existing history</p></div><button class="btn" onclick="go(\'career\')">Open tracking board</button></div>'+
+      '<div class="application-progress">'+['saved','ready','applied','interview','offer'].map(stage=>'<button class="progress-stage" onclick="openCareerStage(\''+stage+'\')"><span>'+esc(stage[0].toUpperCase()+stage.slice(1))+'</span><b>'+count(stage)+'</b></button>').join('')+'</div>'+
+      '<details class="card dashboard-scan"><summary>Scan details <span class="muted">'+(active?'Scan in progress':last?'Last run: '+esc(safeDate(last.started_at)):'No scan runs yet')+(sourceErrors?' · '+sourceErrors+' source errors':'')+'</span></summary>'+
+        (scanError?'<p class="bad">Some scan details could not be loaded. Open the scanner to retry.</p>':'')+
+        '<div id="scanRequestStatus" role="status" aria-live="polite">'+scanRequestCard(latestRequest)+'</div>'+
+        '<h3>Last scan</h3><div class="metric-grid">'+metric(last?.vacancies_found||0,'Candidate pages found')+metric(last?.sources_checked||0,'Sources checked')+metric(last?.imported_count||0,'Imported')+metric(sourceErrors,'Source errors')+'</div>'+
+        '<p class="muted">These numbers describe the last scan. The summary above describes your current tracked jobs. Daily scans start at 08:00 Denmark time.</p>'+
+        '<button class="btn" onclick="go(\'scanner\')">Open scanner and diagnostics</button><h3 class="source-heading">Recently checked sources</h3><div class="source-list">'+(sources.slice(0,6).map(sourceNode).join('')||'<p class="muted">No sources available.</p>')+'</div></details>'+
+      '<h2>Quick links</h2><div class="dashboard-shortcuts"><button class="btn" onclick="go(\'projects\')">Projects</button><button class="btn" onclick="go(\'sites\')">My sites</button><button class="btn" onclick="go(\'tasks\')">Tasks</button><button class="btn" onclick="go(\'settings\')">Settings</button></div>';
+    if(active)setTimeout(()=>pollScanRequest(latestRequest.id),0);
   };
 
   window.jobTable = function(rows){
@@ -275,6 +294,7 @@ function inDenmark(location, country) {
       '<select id="careerScore" aria-label="Minimum match score" class="select" onchange="careerFilter()"><option value="0">All matches</option><option value="75">75%+</option><option value="85">85%+</option><option value="90">90%+</option></select>'+
       '<select id="careerSort" aria-label="Sort tracked jobs" class="select" onchange="careerFilter()"><option value="score">Best match</option><option value="newest">Most recently discovered</option><option value="deadline">Upcoming deadline</option></select></div></div>'+
       '<div id="careerResults"></div>';
+    if(requestedCareerStage&&E('careerStage')){E('careerStage').value=requestedCareerStage;requestedCareerStage='';}
     careerFilter();
   };
 
