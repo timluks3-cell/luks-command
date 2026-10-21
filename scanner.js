@@ -37,21 +37,77 @@
   function safeDate(v){return v?new Date(v).toLocaleDateString("en-GB"):"—"}
   function safeText(v,fallback="—"){return (v===null||v===undefined||v==="")?fallback:String(v)}
 
-  const danishPlaces=/\b(denmark|danmark|dk|københavn|copenhagen|sjælland|zealand|fyn|jylland|ishøj|greve|taastrup|hvidovre|brøndby|glostrup|rødovre|herlev|ballerup|søborg|lyngby|gentofte|hillerød|helsingør|frederiksberg|valby|kastrup|roskilde|køge|holbæk|ringsted|næstved|slagelse|kalundborg|odense|svendborg|fredericia|vejle|kolding|esbjerg|aarhus|århus|randers|silkeborg|viborg|horsens|aalborg|ålborg|hjørring|frederikshavn|herning|holstebro|sønderborg|haderslev|aabenraa|vordingborg|allerød|birkerød|farum|hørsholm|frederikssund|sorø|solrød|rønne|bornholm)\b/i;
-  function denmarkJob(j){const country=String(j.country_code||j.country||"").toLowerCase().trim();return country?["dk","dnk","denmark","danmark"].includes(country):danishPlaces.test(String(j.location||""));}
+const DK_CITIES = ["denmark","danmark","københavn","copenhagen","sjælland","zealand","jylland","jutland","fyn","funen","ishøj","greve","taastrup","hvidovre","brøndby","herlev","ballerup","roskilde","køge","holbæk","ringsted","næstved","slagelse","kalundborg","odense","svendborg","fredericia","vejle","kolding","esbjerg","aarhus","århus","randers","silkeborg","viborg","horsens","aalborg","ålborg","hjørring","frederikshavn","herning","holstebro","sønderborg","haderslev","aabenraa","vordingborg","bornholm","rønne","glostrup","rødovre","frederiksberg","lyngby","hillerød","helsingør","gentofte","kastrup","farum","hørsholm","solrød","allerød"];
+const OTHER_COUNTRIES = ["sweden","sverige","norway","norge","germany","deutschland","finland","poland","netherlands","holland","belgium","france","spain","italy","united kingdom","england","ireland","united states","usa","canada","india","australia"];
+// Country names in the feed languages, including countries absent from the old list.
+const FOREIGN_COUNTRY_NAMES = (() => {
+  const names=new Set(OTHER_COUNTRIES);
+  const displays=[new Intl.DisplayNames(["en"],{type:"region"}),new Intl.DisplayNames(["da"],{type:"region"})];
+  for(let a=65;a<=90;a++) for(let b=65;b<=90;b++){
+    const code=String.fromCharCode(a,b);
+    if(code==="DK") continue;
+    for(const display of displays){
+      const name=display.of(code);
+      if(name && name!==code) names.add(name.toLowerCase());
+    }
+  }
+  return [...names];
+})();
+
+// This server policy is mandatory; request.country is never trusted as evidence.
+function inDenmark(location, country) {
+  const v=String(location||"").normalize("NFC").trim().toLowerCase();
+  const explicit=String(country||"").trim().toLowerCase();
+  if(explicit && !["dk","dnk","denmark","danmark"].includes(explicit)) return false;
+  if(!v) return !!explicit;
+  const has=(term)=>new RegExp("(^|[^\\p{L}])"+term+"(?=$|[^\\p{L}])","iu").test(v);
+  // Explicit foreign countries take precedence over a matching city or region.
+  const foreign=FOREIGN_COUNTRY_NAMES;
+  const trailingCode=v.match(/(?:^|[,;·/])\s*([a-z]{2,3})\s*$/u)?.[1];
+  if(trailingCode && !["dk","dnk"].includes(trailingCode)) return false;
+  return !foreign.some(has) && (!!explicit || [...DK_CITIES,"dk","dnk"].some(has));
+}
+
+  function denmarkJob(j){return inDenmark(j.location,j.country_code||j.country);}
   function missingJobLocation(j){return !String(j.location||"").trim()&&!String(j.country_code||j.country||"").trim();}
   function closedJob(j){return ["closed","dismissed"].includes(String(j.status||"").toLowerCase())||["closed","expired"].includes(String(j.verification_status||"").toLowerCase());}
   function searchedDate(j){return Date.parse(j.last_searched_at||j.last_scanned_at||j.scanned_at||j.last_seen_at||j.discovered_at||j.created_at||j.published_at||"")||0;}
   // Historical application states remain in Supabase and are never deleted by view filters.
   const HISTORY_STATUSES=new Set(["applied","interview","offer","rejected","closed","dismissed"]);
   function historicalJob(j){return HISTORY_STATUSES.has(String(j.status||"").toLowerCase())}
-  function currentUnapplied(j){return denmarkJob(j)&&j.verified_open&&!closedJob(j)&&!historicalJob(j)}
+  // Current matches require verification within seven days; history remains visible.
+  function verifiedCurrent(j, now=Date.now()){
+    const verified=Date.parse(j.verified_at||'');
+    const deadline=Date.parse(j.deadline||'');
+    return j.verified_open===true && !closedJob(j) && Number.isFinite(verified)
+      && verified<=now && now-verified<=7*24*60*60*1000
+      && (!Number.isFinite(deadline)||deadline>=now);
+  }
+  function currentUnapplied(j){return denmarkJob(j)&&verifiedCurrent(j)&&!historicalJob(j)}
+  function vacancyRows(rows){
+    const groups=new Map();
+    for(const j of rows){
+      const key=canonicalJobUrl(j.job_url)||('id:'+j.id);
+      const old=groups.get(key);
+      if(!old || (historicalJob(j)&&!historicalJob(old))) groups.set(key,j);
+    }
+    return [...groups.values()];
+  }
+  async function loadJobs(){
+    const rows=[];
+    for(let offset=0;;offset+=500){
+      const result=await db.from('jobs').select('*').order('id').range(offset,offset+499);
+      if(result.error) throw new Error(result.error.message);
+      rows.push(...(result.data||[]));
+      if((result.data||[]).length<500) return {data:rows};
+    }
+  }
   let showAppliedInCurrent=false;
   window.toggleAppliedInCurrent=function(checked){showAppliedInCurrent=!!checked;refreshBestMatches()};
   let storedMatches=[];
   window.refreshBestMatches=function(){
     const mode=E("matchStatus")?.value||"current",order=E("matchOrder")?.value||"score";
-    let rows=storedMatches.filter(j=>mode==="review"?missingJobLocation(j):denmarkJob(j)).filter(j=>mode==="current"?j.verified_open&&!closedJob(j)&&(showAppliedInCurrent||!historicalJob(j)):mode==="applied"?String(j.status||"").toLowerCase()==="applied":mode==="closed"?closedJob(j):true);
+    let rows=vacancyRows(storedMatches).filter(j=>mode==="review"?missingJobLocation(j):denmarkJob(j)).filter(j=>mode==="current"?verifiedCurrent(j)&&(showAppliedInCurrent||!historicalJob(j)):mode==="applied"?String(j.status||"").toLowerCase()==="applied":mode==="closed"?closedJob(j):true);
     rows.sort((a,b)=>order==="newest"?searchedDate(b)-searchedDate(a):order==="oldest"?searchedDate(a)-searchedDate(b):order==="applied"?(Number(String(b.status).toLowerCase()==="applied")-Number(String(a.status).toLowerCase()==="applied"))||searchedDate(b)-searchedDate(a):order==="closed"?(Number(closedJob(b))-Number(closedJob(a)))||searchedDate(b)-searchedDate(a):Number(b.match_score||0)-Number(a.match_score||0));
     if(E("bestMatchesGrid"))E("bestMatchesGrid").innerHTML=jobTable(rows);
     if(E("bestMatchesCount"))E("bestMatchesCount").textContent=rows.length+(mode==="review"?" missing locations":" Denmark jobs");
@@ -90,7 +146,7 @@
       return;
     }
     const [j,p,t,s,r,src,apps]=await Promise.all([
-      db.from("jobs").select("*"),
+      loadJobs(),
       db.from("projects").select("*").order("created_at"),
       db.from("tasks").select("*").neq("status","completed"),
       db.from("job_scan_runs").select("*").order("started_at",{ascending:false}).limit(1),
@@ -98,7 +154,7 @@
       db.from("job_sources").select("name,domain,source_group,enabled,last_checked_at,useful_hits,rejected_hits").eq("enabled",true).order("last_checked_at",{ascending:false}).limit(12),
       db.from("applications").select("id")
     ]);
-    const jobs=j.data||[], projects=p.data||[], tasks=t.data||[], sources=src.data||[];
+    const jobs=vacancyRows(j.data||[]), projects=p.data||[], tasks=t.data||[], sources=src.data||[];
     const last=s.data&&s.data[0]?s.data[0]:null;
     const latestRequest=r.data&&r.data[0]?r.data[0]:null;
     const current=jobs.filter(currentUnapplied).sort((a,b)=>(b.match_score||0)-(a.match_score||0));
@@ -156,10 +212,11 @@
 
   function canonicalJobUrl(raw){
     try {
-      const u=new URL(raw);u.hash="";
-      ["utm_source","utm_medium","utm_campaign","utm_content","utm_term","fbclid","gclid"].forEach(k=>u.searchParams.delete(k));
-      return (u.hostname+u.pathname+u.search).toLowerCase();
-    } catch {return String(raw||"").trim().toLowerCase();}
+      const u=new URL(raw);u.hash='';
+      for(const key of [...u.searchParams.keys()]) if(/^(utm_.*|fbclid|gclid)$/i.test(key)) u.searchParams.delete(key);
+      u.searchParams.sort();
+      return u.hostname.toLowerCase().replace(/^www\./,'')+u.pathname.replace(/\/+$/,'')+u.search;
+    } catch {return String(raw||'').trim();}
   }
   window.verifyTrackedJob=async function(id){
     const j=careerJobs.find(x=>String(x.id)===String(id));
@@ -191,11 +248,11 @@
 
   window.career = async function(){
     if(localMode){E("view").innerHTML='<h1>Career Operations</h1><p>Sign in for job tracking.</p>';return;}
-    const r=await db.from("jobs").select("*").order("discovered_at",{ascending:false}).limit(1000);
+    const r=await loadJobs();
     if(r.error){msg(r.error.message,"bad");return;}
     careerJobs=r.data||[];
-    const seen=new Set();careerJobs=careerJobs.filter(j=>{const k=canonicalJobUrl(j.job_url);if(!k)return true;if(seen.has(k))return false;seen.add(k);return true;});
-    const active=careerJobs.filter(currentUnapplied);
+    // Keep every record on the board; only current opportunities collapse duplicates.
+    const active=vacancyRows(careerJobs).filter(currentUnapplied);
     E("view").innerHTML=
       '<div class="mission-header"><div><div class="kicker">OPPORTUNITY CONTROL</div><h1 class="command-title">Career Operations</h1><div class="command-sub">Denmark job filtering and application tracking</div></div><div class="row"><button class="mission-run" onclick="requestJobScan()">RUN JOB SCAN</button><button class="btn" onclick="go(\'scanner\')">Scanner console</button></div></div>'+
       trackingBoard(careerJobs)+
@@ -218,7 +275,7 @@
     }
     const [runs,jobs,profile,sources,requests,discoveries]=await Promise.all([
       db.from("job_scan_runs").select("*").order("started_at",{ascending:false}).limit(10),
-      db.from("jobs").select("*").order("match_score",{ascending:false}).limit(1000),
+      loadJobs(),
       db.from("career_profiles").select("professional_title,preferred_roles,preferred_locations,skills,master_cv_file_name").maybeSingle(),
       db.from("job_sources").select("name,domain,source_group,enabled,last_checked_at,useful_hits,rejected_hits").eq("enabled",true).order("source_group").order("name"),
       db.from("job_scan_requests").select("*").order("requested_at",{ascending:false}).limit(5),
@@ -239,18 +296,18 @@
       '<div id="scanRequestStatus">'+scanRequestCard(latestRequest)+'</div>'+
       '<div class="metric-grid">'+
         metric(last?last.vacancies_found:0,"Jobs Found")+
-        metric(jobRows.filter(x=>currentUnapplied(x)&&(x.match_score||0)>=75).length,"Strong Matches")+
+        metric(vacancyRows(jobRows).filter(x=>currentUnapplied(x)&&(x.match_score||0)>=75).length,"Strong Matches")+
         metric(last?last.sources_checked:sourceRows.length,"Sources Checked")+
         metric(last?last.imported_count:0,"Imported")+
         metric(last?last.rejected_count:0,"Filtered Out")+
         metric(failedSources,"Source Errors")+
-        metric(jobRows.filter(currentUnapplied).length,"Current Vacancies")+
+        metric(vacancyRows(jobRows).filter(currentUnapplied).length,"Current Vacancies")+
       '</div>'+
       '<div class="card"><div class="panel-title">How scan results are counted</div><p class="muted" style="margin-bottom:0"><b>Filtered Out</b> means candidate pages that were checked but did not qualify as a current matching vacancy. This can include generic career pages, expired or closed jobs, internships, student, trainee, elev or praktik roles, unrelated positions, or pages without enough evidence that the vacancy is still open. <b>Source Errors</b> means an entire source could not be read successfully.</p></div>'+
       '<div class="scan-console"><div class="mission-panel"><div class="panel-title">Career Profile / Scan Targeting</div><div style="font-size:19px;font-weight:800;margin:10px 0">'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</div><div class="muted">Master CV: '+esc(p.master_cv_file_name||"Master CV")+'</div><div style="margin-top:14px" class="panel-title">Target Roles</div><div id="roleChips" class="row" style="margin-top:10px">'+((p.preferred_roles||[]).map(x=>roleChip(x)).join(""))+'</div><div class="row" style="margin-top:12px"><input id="newRoleInput" class="input" style="max-width:360px" placeholder="Add role, e.g. BIM Specialist" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addPreferredRole()}"><button class="btn primary" onclick="addPreferredRole()">Add role</button></div></div>'+
       categorySummary(p.preferred_roles||[])+
        '<div class="mission-panel"><div class="panel-title">Registry Status</div><div class="metric-grid" style="grid-template-columns:1fr 1fr;margin-top:14px">'+metric(sourceRows.length,"Enabled Sources")+metric(sourceGroups.length,"Source Groups")+'</div><button class="btn" onclick="showSourceRegistry()">View source registry</button></div></div>'+
-      '<h2>Best Current Matches <span id="bestMatchesCount" class="muted"></span></h2><div class="jobs-toolbar"><select id="matchOrder" class="select" onchange="refreshBestMatches()"><option value="score">Best match</option><option value="newest">Date searched: newest</option><option value="oldest">Date searched: oldest</option><option value="applied">Applied first</option><option value="closed">Closed first</option></select><select id="matchStatus" class="select" onchange="refreshBestMatches()"><option value="current">Current jobs</option><option value="applied">Applied</option><option value="closed">Closed</option><option value="all">All Denmark statuses</option><option value="review">Review missing locations</option></select><label class="pill" style="cursor:pointer"><input type="checkbox" id="showAppliedInCurrent" onchange="toggleAppliedInCurrent(this.checked)"> Show applied / history jobs</label><span class="muted">New opportunities exclude previously applied and closed jobs by default · Denmark only</span></div><div id="bestMatchesGrid"></div>'+
+      '<h2>Best Current Matches <span id="bestMatchesCount" class="muted"></span></h2><div class="jobs-toolbar"><select id="matchOrder" class="select" onchange="refreshBestMatches()"><option value="score">Best match</option><option value="newest">Date searched: newest</option><option value="oldest">Date searched: oldest</option><option value="applied">Applied first</option><option value="closed">Closed first</option></select><select id="matchStatus" class="select" onchange="refreshBestMatches()"><option value="current">Current jobs</option><option value="applied">Applied</option><option value="closed">Closed</option><option value="all">All Denmark statuses</option><option value="review">Review missing locations</option></select><label class="pill" style="cursor:pointer"><input type="checkbox" id="showAppliedInCurrent" onchange="toggleAppliedInCurrent(this.checked)"> Show applied / history jobs</label><span class="muted">Current matches require verification within 7 days and an unexpired deadline · History is preserved · Denmark only</span></div><div id="bestMatchesGrid"></div>'+
       '<h2>All Job Postings Found</h2><div class="card"><div class="jobs-toolbar"><input id="discoveryFilter" class="input" style="max-width:360px" placeholder="Filter discovered postings" oninput="filterDiscoveries()"><select id="discoveryStatus" class="select" style="max-width:220px" onchange="filterDiscoveries()"><option value="">All verification states</option><option value="open">Verified open</option><option value="unverified">Unverified</option><option value="closed">Closed</option><option value="expired">Expired</option><option value="blocked">Blocked</option><option value="error">Error</option></select></div>'+discoveryTable(discoveryRows)+'</div>'+
       '<h2>Job Source Status</h2><div class="source-list">'+sourceRows.slice(0,24).map(sourceNode).join("")+'</div>'+
       (failedDiagnostics.length?'<h2>Source Errors — Last Scan</h2><div class="card"><div class="muted" style="margin-bottom:10px">These sources were processed but not successfully read, so they are not counted as checked.</div><div class="source-list">'+failedDiagnostics.map(d=>'<div class="source-node"><div class="row space"><div class="name">'+esc(d.source||"Source")+'</div>'+statusChip("error")+'</div><div class="stamp">'+esc(d.provider||"generic")+' · '+esc(d.error||"Source could not be read")+'</div></div>').join("")+'</div></div>':'')+
@@ -446,4 +503,5 @@ window.filterSourceRegistry = function(){
     tr.style.display=(textOk&&groupOk)?"":"none";
   });
 };
+
 
