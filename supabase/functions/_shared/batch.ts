@@ -15,7 +15,19 @@ export function prepareSourceResult(result: any) {
       reason: String(job.reason || '').slice(0, 4000), snippet: String(job.snippet || '').slice(0, 1800),
       published_at: job.publishedRaw ? parseCsodDate(job.publishedRaw) : iso(job.publishedAt), deadline: iso(job.deadline),
     }));
-  return { source_id: result.source.id, source_name: result.source.name, ok: !!result.searchOk,
+  const rejection_reasons:Record<string,number>={};
+  const rejected_samples:any[]=[];
+  for(const job of checked){
+    let reason='';
+    if(!job.verified) reason=String(job.reason||'unverified_vacancy');
+    else if(!inDenmark(job.location,job.country)) reason=job.location||job.country?'outside_Denmark_or_conflicting_evidence':'missing_workplace_evidence';
+    else if(!/^https?:\/\//i.test(String(job.url||''))) reason='invalid_url';
+    if(reason){
+      rejection_reasons[reason]=(rejection_reasons[reason]||0)+1;
+      if(rejected_samples.length<2)rejected_samples.push({title:String(job.title||'').slice(0,160),url:String(job.url||'').slice(0,500),reason});
+    }
+  }
+  return { source_id: result.source.id, source_name: result.source.name, ok: !!result.searchOk, rejection_reasons,rejected_samples,
     provider: result.provider || 'unknown', ats_url: result.atsUrl && atsKind(result.atsUrl) ? result.atsUrl : null, error: result.error ? String(result.error).slice(0, 2000) : null,
     found: checked.length, rejected: checked.length - candidates.filter((job: any) => job.verified).length, candidates };
 }
@@ -32,3 +44,4 @@ export async function collectBatch(sources: any[], profile: any, timeoutMs = 650
     } finally { if (timer !== undefined) clearTimeout(timer); }
   }));
 }
+

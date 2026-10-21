@@ -125,11 +125,19 @@ async function fetchText(url:string, timeout=10000){
 
 function decodeDuck(href:string){
   try{
-    if(href.startsWith("//")) href="https:"+href;
-    const u=new URL(href,"https://duckduckgo.com");
+    const decoded=href.replace(/&amp;/gi,"&").replace(/&#38;/g,"&");
+    const u=new URL(decoded.startsWith("//")?"https:"+decoded:decoded,"https://duckduckgo.com");
     const uddg=u.searchParams.get("uddg");
-    return uddg ? decodeURIComponent(uddg) : u.href;
-  }catch{return href}
+    if(uddg) return /^https?:\/\//i.test(uddg)?uddg:"";
+    if(/(^|\.)bing\.com$/i.test(u.hostname) && u.pathname==="/ck/a"){
+      const packed=u.searchParams.get("u")||"";
+      if(!packed.startsWith("a1")) return "";
+      const base64=packed.slice(2).replace(/-/g,"+").replace(/_/g,"/");
+      const target=atob(base64.padEnd(Math.ceil(base64.length/4)*4,"="));
+      return /^https?:\/\//i.test(target)?target:"";
+    }
+    return /^https?:$/.test(u.protocol)?u.href:"";
+  }catch{return ""}
 }
 
 function extractSearchResults(html:string){
@@ -215,9 +223,16 @@ function genericListing(title:string,url:string){
 }
 
 function roleRelevant(title:string,text:string,terms:string[]){
-  const t=(title+" "+text).toLowerCase();
-  if(excludedPosition(title,text)) return false;
-  return terms.some(x=>x && t.includes(x));
+  // Description/footer words cannot turn an unrelated vacancy into a role match.
+  const value=title.normalize("NFC").toLowerCase();
+  if(excludedPosition(title)) return false;
+  return terms.some(raw=>{
+    const term=String(raw||"").trim().toLowerCase();
+    if(!term) return false;
+    if(term.length>4) return value.includes(term);
+    const escaped=term.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+    return new RegExp("(^|[^\\p{L}])"+escaped+"(?=$|[^\\p{L}])","iu").test(value);
+  });
 }
 
 function jobLinkLikely(title:string,url:string){
@@ -731,11 +746,11 @@ async function scanRoleDiscovery(source:any,profile:any){
     return {source,checked:[],searchOk:false,provider:"role-discovery",error:"Discovery role is not in the saved career profile"};
   }
   const results=await webSearch('"'+role.replace(/"/g,"")+'" (Denmark OR Danmark) (job OR stilling)');
-  const candidates=[...new Map(results.filter((c:any)=>!genericListing(c.title,c.url)&&!excludedPosition(c.title)).map((c:any)=>[c.url,c])).values()].slice(0,8);
+  const candidates=[...new Map(results.filter((c:any)=>!genericListing(c.title,c.url)&&roleRelevant(c.title,"",[role])).map((c:any)=>[c.url,c])).values()].slice(0,8);
   const checked=(await Promise.all(candidates.map((c:any)=>checkGenericVacancy(c,[role.toLowerCase()]))))
     .map((job:any)=>job.companyOverride?job:{...job,verified:false,reason:"Discovery advert has no identifiable hiring organization"});
-  return {source,checked,searchOk:results.length>0,provider:"role-discovery",
-    error:results.length?null:"Search returned no readable results; coverage could not be confirmed"};
+  return {source,checked,searchOk:candidates.length>0,provider:"role-discovery",
+    error:candidates.length?null:results.length?"Search returned only unrelated or generic results; coverage could not be confirmed":"Search returned no readable results; coverage could not be confirmed"};
 }
 
 async function scanGeneric(source:any, url:string, terms:string[]){
@@ -970,5 +985,5 @@ function parseCsodDate(raw:string){
 }
 
 
-export { scanSource, inDenmark, parseCsodDate, atsKind, jobPostingEvidence, searchRoleHints, excludedPosition };
+export { scanSource, inDenmark, parseCsodDate, atsKind, jobPostingEvidence, searchRoleHints, excludedPosition, roleRelevant, decodeDuck, genericListing, strip, CLOSED_WORDS };
 
