@@ -2,3 +2,6 @@ project_id = "wqopxxzlfuifcfukydvn"
 
 [functions.scan-jobs]
 verify_jwt = true
+
+[functions.scan-worker]
+verify_jwt = false

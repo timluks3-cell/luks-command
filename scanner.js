@@ -227,8 +227,9 @@
     const runRows=runs.data||[], jobRows=jobs.data||[], p=profile.data||{}, sourceRows=sources.data||[], requestRows=requests.data||[], discoveryRows=discoveries.data||[];
     storedMatches=jobRows;
     const latestRequest=requestRows[0]||null, sourceGroups=[...new Set(sourceRows.map(s=>s.source_group||"Other"))], last=runRows[0]||null;
+    if(latestRequest&&["pending","running"].includes(latestRequest.status)) setTimeout(()=>pollScanRequest(latestRequest.id),0);
     const scannerState=latestRequest&&["pending","running"].includes(latestRequest.status)?latestRequest.status:(last?.status||"standby");
-    const resumableRun=last&&last.status==="running";
+    const resumableRun=false; // The server worker resumes saved progress automatically.
     const scanButtonLabel=resumableRun?"RESUME JOB SCAN":"RUN JOB SCAN";
     const failedSources=Number(last?.metadata?.failed_sources||0);
     const diagRows=Array.isArray(last?.metadata?.diagnostics)?last.metadata.diagnostics:[];
@@ -355,187 +356,23 @@
 
 
   window.requestJobScan = async function(){
-    if(localMode||!user){
-      alert("Sign in to run a live scan.");
-      return;
-    }
+    if(localMode||!user) return msg("Sign in to run a scan.","bad");
     if(window.__liveScanRunning) return;
     window.__liveScanRunning=true;
-
-    const btn=E("scanNowBtn");
-    if(btn){btn.disabled=true;btn.textContent="SCANNING…";}
-    const dbtn=E("dashboardScanBtn");
-    if(dbtn){dbtn.disabled=true;dbtn.textContent="SCANNING…";}
-
-    let req=null;
-    let runId=null;
-    let offset=0;
-    let total=0;
-    let checked=0;
-    let found=0;
-    let verified=0;
-    let imported=0;
-    let rejected=0;
-    let resumed=false;
-
+    const buttons=[E("scanNowBtn"),E("dashboardScanBtn")].filter(Boolean);
+    buttons.forEach(b=>{b.disabled=true;b.textContent="QUEUING…";});
     try{
-      // Resume the newest unfinished scan instead of restarting from zero.
-      const [runLookup, reqLookup, sourceCount] = await Promise.all([
-        db.from("job_scan_runs").select("*").eq("status","running").order("started_at",{ascending:false}).limit(1),
-        db.from("job_scan_requests").select("*").in("status",["running","pending"]).order("requested_at",{ascending:false}).limit(1),
-        db.from("job_sources").select("id",{count:"exact",head:true}).eq("enabled",true)
-      ]);
-
-      const unfinishedRun=runLookup.data&&runLookup.data[0]?runLookup.data[0]:null;
-      const unfinishedReq=reqLookup.data&&reqLookup.data[0]?reqLookup.data[0]:null;
-      total=Number(sourceCount.count||0);
-
-      if(unfinishedRun){
-        runId=unfinishedRun.id;
-        offset=Number(unfinishedRun.metadata?.processed_sources||0);
-        checked=offset;
-        found=Number(unfinishedRun.vacancies_found||0);
-        verified=Number(unfinishedRun.verified_open||0);
-        imported=Number(unfinishedRun.imported_count||0);
-        rejected=Number(unfinishedRun.rejected_count||0);
-        req=unfinishedReq||null;
-        resumed=true;
-
-        if(!req){
-          const inserted=await db.from("job_scan_requests").insert({
-            user_id:user.id,
-            requested_scope:"all_sources",
-            status:"pending",
-            message:"Resuming interrupted scan from source "+offset
-          }).select().single();
-          if(inserted.error) throw inserted.error;
-          req=inserted.data;
-        }else{
-          await db.from("job_scan_requests").update({
-            status:"pending",
-            completed_at:null,
-            message:"Resuming interrupted scan from source "+offset
-          }).eq("id",req.id);
-        }
-      }else{
-        const inserted=await db.from("job_scan_requests")
-          .insert({
-            user_id:user.id,
-            requested_scope:"all_sources",
-            status:"pending",
-            message:"Starting live scan from Luks Command"
-          })
-          .select()
-          .single();
-
-        if(inserted.error) throw inserted.error;
-        req=inserted.data;
-      }
-
-      const holder=E("scanRequestStatus");
-      if(holder) holder.innerHTML=liveProgressCard({
-        status:"running",checked,total,found,verified,imported,rejected,
-        message:resumed
-          ? "Resuming saved scan progress from source "+checked+" of "+total+"…"
-          : "Connecting to the live job scanner…"
-      });
-
-      while(true){
-        let invoke=null;
-        let attempt=0;
-        while(attempt<5){
-          attempt++;
-          invoke=await db.functions.invoke("scan-jobs",{
-            body:{
-              scan_request_id:req.id,
-              run_id:runId,
-              offset:offset,
-              limit:2,
-               country: "DK",
-               country_code: "DK"
-            }
-          });
-
-          if(!invoke.error) break;
-
-          const em=String(invoke.error.message||invoke.error);
-          const retryable=/non-2xx|546|resource|timeout|worker|failed to send|network|fetch/i.test(em);
-          if(attempt>=5 || !retryable) throw invoke.error;
-
-          if(holder){
-            holder.innerHTML=liveProgressCard({
-              status:"running",checked,total,found,verified,imported,rejected,
-              message:"Connection interrupted. Retrying batch "+attempt+"/5 without losing progress…"
-            });
-          }
-          await new Promise(r=>setTimeout(r,1500*attempt));
-        }
-
-        if(invoke.error) throw invoke.error;
-        const data=invoke.data||{};
-        if(data.error) throw new Error(data.error);
-
-        runId=data.run_id||runId;
-        offset=Number(data.next_offset??offset);
-        total=Number(data.total||total);
-        checked=offset;
-
-        // Backend totals are cumulative on the run. Prefer them if exposed later;
-        // current endpoint returns per-batch counts, so accumulate those here.
-        found+=Number(data.found||0);
-        verified+=Number(data.verified||0);
-        imported+=Number(data.imported||0);
-        rejected+=Number(data.rejected||0);
-
-        if(holder){
-          const pct=total?Math.min(100,Math.round((checked/total)*100)):0;
-          holder.innerHTML=liveProgressCard({
-            status:data.done?"completed":"running",
-            checked,total,found,verified,imported,rejected,percent:pct,
-            message:data.done
-              ?"Live scan completed. Refreshing current jobs and source timestamps…"
-              :"Searching source registry and verifying direct job postings…"
-          });
-        }
-
-        if(data.done) break;
-        await new Promise(r=>setTimeout(r,350));
-      }
-
-      await scanner();
-    }catch(err){
-      console.error(err);
-      const holder=E("scanRequestStatus");
-      const em=(err&&err.message)?err.message:String(err);
-
-      // Do not destroy a long-running scan's saved progress on a client/network interruption.
-      if(holder) holder.innerHTML=liveProgressCard({
-        status:"paused",checked,total,found,verified,imported,rejected,
-        message:"Scan paused at source "+checked+" of "+(total||"?")+". Your progress is saved. Press RESUME JOB SCAN to continue."
-      });
-
-      if(req&&req.id){
-        await db.from("job_scan_requests").update({
-          status:"pending",
-          completed_at:null,
-          message:"Paused after connection interruption at source "+checked+". Ready to resume."
-        }).eq("id",req.id);
-      }
-    }finally{
+      const result=await db.functions.invoke("scan-jobs",{body:{country:"DK"}});
+      if(result.error||result.data?.error) throw new Error(result.error?.message||result.data.error);
+      const id=result.data?.request_id;
+      if(!id) throw new Error("The server did not return a scan request.");
+      if(page==="scanner") await scanner(); else if(page==="dashboard") await dashboard();
+      pollScanRequest(id);
+      msg("Background scan queued. You can close the browser.","good");
+    }catch(error){msg(error.message||String(error),"bad");}
+    finally{
       window.__liveScanRunning=false;
-
-      // If an unfinished run remains, make the action clearly resumable.
-      let hasRunning=false;
-      try{
-        const rr=await db.from("job_scan_runs").select("id").eq("status","running").limit(1);
-        hasRunning=!!(rr.data&&rr.data.length);
-      }catch{}
-
-      const label=hasRunning?"RESUME JOB SCAN":"RUN JOB SCAN";
-      const b=E("scanNowBtn");
-      if(b){b.disabled=false;b.textContent=label;}
-      const d=E("dashboardScanBtn");
-      if(d){d.disabled=false;d.textContent=label;}
+      buttons.forEach(b=>{b.disabled=false;b.textContent="RUN JOB SCAN";});
     }
   };
 
@@ -553,14 +390,14 @@
 
     function scanRequestCard(req){
     if(!req){
-      return '<div class="card"><div class="row space"><div><b>Manual full scan</b><div class="muted">Press “Scan all sources now” to start a live server-side search across the enabled source registry.</div></div></div></div>';
+      return '<div class="card"><div class="row space"><div><b>Background scan</b><div class="muted">Press RUN JOB SCAN to queue a background scan. Daily scans start at 08:00 Denmark time.</div></div></div></div>';
     }
     const labels={pending:"Queued",running:"Searching",completed:"Completed",partial:"Completed with limits",failed:"Failed"};
     const label=labels[req.status]||req.status;
     const when=req.requested_at?new Date(req.requested_at).toLocaleString():"";
-    return '<div class="card"><div class="row space"><div><div class="panel-title">JOB SCAN STATUS</div><b>Manual full scan: '+esc(label)+'</b><div class="muted">Requested '+esc(when)+'</div></div>'+statusChip(req.status)+'</div>'+
+    return '<div class="card"><div class="row space"><div><div class="panel-title">JOB SCAN STATUS</div><b>Background scan: '+esc(label)+'</b><div class="muted">Requested '+esc(when)+'</div></div>'+statusChip(req.status)+'</div>'+
       '<p class="muted">'+esc(req.message||(
-        req.status==="pending"?"Ready to start a live server-side search.":
+        req.status==="pending"?"Queued on the server; the browser can be closed.":
         req.status==="running"?"Searching configured sources and verifying live vacancies.":
         req.status==="completed"?"Results have been written to the job list below.":
         req.status==="partial"?"Scan completed, but some sources could not be checked.":
@@ -572,6 +409,7 @@
     if(window.__scanPoll) clearInterval(window.__scanPoll);
     let checks=0;
     const tick=async()=>{
+      if(!user){clearInterval(window.__scanPoll);window.__scanPoll=null;return;}
       checks++;
       const r=await db.from("job_scan_requests").select("*").eq("id",id).maybeSingle();
       if(r.error) return;
@@ -581,7 +419,7 @@
       if(req&&["completed","partial","failed"].includes(req.status)){
         clearInterval(window.__scanPoll);
         window.__scanPoll=null;
-        if(page==="scanner") scanner();
+        if(page==="scanner") scanner(); else if(page==="dashboard") dashboard();
       }
       if(checks>=480){
         clearInterval(window.__scanPoll);
@@ -593,7 +431,7 @@
   };
 
   window.settings = function(){
-    E("view").innerHTML='<div class="mission-header"><div><div class="kicker">SYSTEM CONFIGURATION</div><h1 class="command-title">Settings</h1></div>'+statusChip("online")+'</div><div class="card"><b>Mode</b><p class="muted">'+(localMode?"Local mode":"Online Supabase mode")+'</p></div><div class="card"><b>Daily Job Search</b><p class="muted">Uses your master career profile, verifies that vacancies are still open, and prioritizes strong matches.</p></div>';
+    E("view").innerHTML='<div class="mission-header"><div><div class="kicker">SYSTEM CONFIGURATION</div><h1 class="command-title">Settings</h1></div>'+statusChip("online")+'</div><div class="card"><b>Mode</b><p class="muted">'+(localMode?"Local mode":"Online Supabase mode")+'</p></div><div class="card"><b>Daily Job Search</b><p class="muted">Starts at 08:00 Denmark time using your saved career profile. Collection continues with the browser closed; unavailable sources are reported.</p></div>';
   };
 
   if(user||localMode) render();
@@ -608,3 +446,4 @@ window.filterSourceRegistry = function(){
     tr.style.display=(textOk&&groupOk)?"":"none";
   });
 };
+

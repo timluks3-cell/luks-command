@@ -1,97 +1,82 @@
-# Recurring scans: verified baseline and next deployment step
+# Background scans
 
-## Verified on 21 October 2026
+LUKS COMMAND uses a server queue. Manual and daily scans continue after the browser closes.
+Daily enqueue is configured for **08:00 Europe/Copenhagen**, including daylight-saving changes.
+A minute-level dispatcher only calls the worker while work is eligible. A full scan takes multiple
+batches; 08:00 is its start time, not a promised completion time.
 
-The active Supabase project is `wqopxxzlfuifcfukydvn`. The imported
-`supabase/functions/scan-jobs/index.ts` is based on deployed version 10,
-bundle SHA-256 `621fec23481bc9f1564ce7626e7efde81ec754db346755ec0151f60873ebd4cc`.
-The original source was retrieved through Supabase's management connector.
-The configuration records the observed `verify_jwt = true` setting.
-This is a partial backend source baseline, not a complete database bootstrap.
-The separately deployed `verify-job` function is unchanged and is not included.
+## Files and boundaries
 
-The deployed scanner already used `inDenmark()` before discovery/import writes.
-Its location list accepted "New Zealand" via "Zealand" and did not recognize
-DK/DNK. This change fixes those cases, rejects foreign country names in
-English/Danish, and gives
-explicit structured country values precedence over city-name hints. Foreign,
-ambiguous multi-country and unknown locations are excluded from imports.
-The city fallback remains a heuristic: it is not a complete Denmark geocoder.
+- `supabase/functions/scan-jobs/index.ts`: user-authenticated enqueue endpoint. The database
+  derives ownership from `auth.uid()`; caller-supplied user/country/offset values cannot change scope.
+- `supabase/functions/scan-worker/index.ts`: machine-authenticated worker. A random token stays
+  inside Supabase Vault and is verified by a service-only claim RPC before returning any task.
+  This endpoint has gateway JWT verification disabled because it performs its own token check.
+  The manual endpoint retains JWT verification. No secret is included in browser code or Git.
+- `_shared/scan-core.ts`: employer adapters imported from deployed scanner v10, with strengthened
+  Denmark admission and all existing source/provider, role and scoring logic retained.
+- `_shared/batch.ts`: bounds source collection to 65 seconds, normalizes candidate dates/scores,
+  and applies Denmark filtering before persistence. Country hints in requests are not evidence.
+- `_shared/backend.ts`: uses built-in fetch to call PostgREST; no external runtime packages.
+- `supabase/migrations/`: private queue, server-only RPCs, stable source snapshot and atomic imports.
+- `scanner.js`: queues manual requests, observes saved progress and resumes observation on refresh.
+- `supabase/tests/recurring-scans.sql`: transactional database regression checks; fixtures roll back.
+- `tests/scan-jobs.test.mjs`: Node 24 regression tests for admission, worker and manual endpoints.
 
-The backend also preserves every existing job tracking stage, refreshes discoveries
-through the existing `(user_id, job_url)` unique constraint, validates supplied
-request/run ownership, links a request to its run before batch work, and reports
-discovery/job/progress write failures instead of silently advancing the cursor.
-No historical records are removed or reclassified by this change.
+## Recovery and record preservation
 
-## What is still browser-dependent
+Each owner has at most one active work item. Requests reuse that item under a transaction lock.
+Source order and configuration are snapshotted when queued, so source edits do not shift a cursor.
+The worker claims up to four sources with a 150-second lease and a random fencing token.
+An interrupted worker is retried after lease expiry; late results from its old token are rejected.
+Source failures retry up to three claims, then record failed sources and allow the scan to finish
+as `partial`. Repeated persistence/interruption failures stop after five claims and retain progress.
 
-`scanner.js: requestJobScan()` creates or resumes `job_scan_requests` and repeatedly
-calls `scan-jobs` with `{scan_request_id, run_id, offset, limit: 2}`. Each response
-returns `run_id`, `next_offset`, `total`, `done`, and per-batch counters.
-`pollScanRequest()` only observes a request; currently nothing calls it.
+Candidate imports, discovery updates, source counters, run totals and cursor advancement occur in
+one database transaction. Replaying a committed result cannot increment counts again. Canonical URL
+matching removes tracking parameters while retaining vacancy-identifying query parameters. Existing
+job tracking stages, notes and application rows are never overwritten by rescans. Existing duplicate
+or foreign historical rows are retained; view filters determine what is shown.
 
-The scanner uses a Supabase Auth user session. It does not use the user's browser
-to visit employer pages: source retrieval already happens in the Edge Function.
-Source-specific anonymous ATS tokens/cookies are acquired inside the function.
+Denmark admission recognizes DK/DNK and Danish cities, rejects foreign countries in English/Danish,
+and gives structured country evidence precedence over city hints. Unknown and ambiguous multi-country
+locations are excluded. The fallback city list is conservative and is not a complete geocoder.
+Collection depends on public employer feeds, ATS endpoints and search fallback availability. Blocked
+or unavailable providers are recorded as failures, not claimed as successfully checked. Matching uses
+the existing saved career profile and scoring heuristic; this change does not add full-CV AI ranking.
 
-There is no database scan lease and no `pg_cron`/`pg_net` extension installed.
-`window.__liveScanRunning` prevents duplicate execution in one browser page only.
-Offset pagination depends on the current enabled source ordering. Imports and
-checkpoint updates are not one database transaction; replaying a failed batch
-can repeat source counters. These limitations must be resolved before claiming
-reliable unattended execution. This PR does not enable a recurring schedule.
+## Deployment and scheduling
 
-## Next smallest recurring-scan implementation
+Project: `wqopxxzlfuifcfukydvn`. Deploy both functions and their `_shared` dependencies after migrations.
+`scan-worker` uses built-in `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`; `scan-jobs` uses
+`SUPABASE_URL`/`SUPABASE_ANON_KEY`. The migration generates `luks_worker_token` in Vault without
+returning its value. Netlify publishes only the three frontend files from `dist/`; it does not apply migrations or deploy functions. The migrations build on the existing database baseline.
 
-1. Add `supabase/functions/scan-worker/index.ts` with machine authentication.
-   Do not remove user authentication from the public `scan-jobs` endpoint.
-   Extract shared scan logic only after adding a worker authorization boundary.
-2. Create a migration using `supabase migration new scan_worker`. Add a per-owner
-   lease and atomic claim/checkpoint operations, a stable source-ID snapshot,
-   bounded retries, and a daily enqueue key. Preserve existing request/run IDs.
-   Treat job/discovery imports as repeatable operations and persist batch results
-   once so recovery cannot inflate run/source counters. Only service credentials
-   may claim worker tasks. Ordinary users retain access to their own records.
-3. Enqueue once per owner/local day; run a short worker tick to continue batches.
-   Use `pg_cron` + `pg_net` and Vault, or a separately authenticated external runner.
-   A daily HTTP call processing only two sources is not a full daily scan.
-4. Change `requestJobScan()` to enqueue/resume and call `pollScanRequest(req.id)`.
-   Both manual and scheduled requests must use the same server lease.
-5. Test interruption/recovery, simultaneous requests, stable source pagination,
-   missing credentials, expired leases, database failures, unknown/foreign
-   locations, and preservation of applications and all job stages.
+`ops/activate-scans.sql` enables the owner's daily schedule, installs the named minute dispatcher,
+and starts one full scan. Activation is separate from schema deployment so tests can run first.
+`ops/pause-scans.sql` stops new scheduled execution without deleting records or saved progress.
+The ChatGPT daily monitor reports saved results rather than running a second independent importer.
 
-## Access and activation
+The private queue has deny-by-default RLS and no ordinary-user grants. The user enqueue wrapper is
+intentionally SECURITY DEFINER, requires `auth.uid()`, and checks request ownership. Worker RPCs
+revoke PUBLIC, anon and authenticated execution and grant only service_role. These intentional
+boundaries can appear as informational/private-policy or authenticated-definer advisor notices.
 
-- GitHub: source, regression tests, CI, worker implementation and migration files.
-- Supabase: inspect/apply the migration, deploy functions, configure worker
-  authentication, enable scheduling extensions, provision Vault entries, and
-  inspect actual function/database logs. Never commit secret values.
-- Netlify: publishes frontend changes only. It does not deploy Supabase functions
-  or install SQL schedules. Its current publish root is the repository root.
-- Scheduling decision: daily time and IANA timezone must be recorded before
-  activation; no daily execution time is assumed in this baseline.
-- Any existing ChatGPT monitor should be checked before enabling a second daily
-  enqueue source. This change does not modify ChatGPT automations.
+## Validation
 
-## Checks and deployment
+```
+node --test tests/scan-jobs.test.mjs
+npx --yes deno@2.9.6 check supabase/functions/scan-jobs/index.ts supabase/functions/scan-worker/index.ts
+node --check scanner.js
+```
 
-Run `node --test tests/scan-jobs.test.mjs` with Node 24. Tests execute the actual
-TypeScript handler after stripping its types, with an in-memory Supabase client
-and source fixtures. They need no credentials and never contact live job sites.
-They verify imports and status preservation, not real-provider connectivity or
-Deno dependency resolution. GitHub Actions runs these checks on pull requests.
+Run `supabase/tests/recurring-scans.sql` against a project containing a career profile and enabled
+sources. It checks owner coalescing, worker ACLs, snapshot stability, lease recovery/fencing,
+transaction rollback, country admission, canonical deduplication, history, replay protection and DST.
+It sends no HTTP requests and rolls all fixture changes back. Live validation additionally invokes
+the deployed worker through `pg_net` with one real source, verifies saved run results, checks that
+unauthenticated requests are rejected, and compares application/status preservation baselines.
 
-Deploy `scan-jobs` only after these checks pass, keeping JWT verification enabled.
-The function uses the pre-existing `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and
-`SUPABASE_SERVICE_ROLE_KEY` environment variables. No additional secrets or schema
-changes are required for this first step. Existing runtime import specifiers are
-retained from deployed v10; dependency pinning/lockfile generation needs Deno
-validation before a future deployment pipeline is added.
-
-After deployment, check that unauthenticated calls are rejected, perform a bounded
-authenticated scan, and verify the saved results and tracking stages. A passing
-mock suite alone is not evidence that the deployed backend has changed.
-
-Reference: https://supabase.com/docs/guides/functions/schedule-functions
+The original backend baseline was deployed v10, bundle SHA-256
+`621fec23481bc9f1564ce7626e7efde81ec754db346755ec0151f60873ebd4cc`.
+`verify-job` is a separate existing function and is unchanged.

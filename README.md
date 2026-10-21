@@ -1,9 +1,11 @@
 # LUKS COMMAND
 
-Static dashboard backed by Supabase. Netlify publishes the repository root.
+A static career dashboard backed by Supabase, with background Denmark-only job scans.
+Daily scans start at **08:00 Denmark time** and continue with the browser closed.
+Manual scans use the same queue and preserve existing applications and tracking stages.
 
-The browser frontend is `index.html`, `scanner.js`, and `job-role-categories.js`.
-The scanner backend source is tracked under `supabase/functions/scan-jobs/`.
+Netlify publishes the frontend from this repository. Supabase functions and SQL migrations
+are deployed separately. See [background scan operations](docs/recurring-scans.md).
 
 Run regression checks with Node 24:
 
@@ -11,6 +13,5 @@ Run regression checks with Node 24:
 node --test tests/scan-jobs.test.mjs
 ```
 
-See [recurring scan implementation notes](docs/recurring-scans.md) for the verified
-backend baseline, deployment requirements and remaining scheduling work.
-Unattended recurring scans are not enabled by this repository change.
+The saved career profile controls search roles. Unavailable job sources are reported;
+a scheduled start does not guarantee every provider can be reached.

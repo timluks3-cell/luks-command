@@ -16,3 +16,4 @@ jobs:
       - run: node --test tests/scan-jobs.test.mjs
       - run: node --check scanner.js
       - run: node --check job-role-categories.js
+      - run: npx --yes deno@2.9.6 check supabase/functions/scan-jobs/index.ts supabase/functions/scan-worker/index.ts
