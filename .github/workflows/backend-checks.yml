@@ -13,7 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: node --test tests/scan-jobs.test.mjs
+      - run: node --test tests/*.test.mjs
       - run: node --check scanner.js
       - run: node --check job-role-categories.js
       - run: npx --yes deno@2.9.6 check supabase/functions/scan-jobs/index.ts supabase/functions/scan-worker/index.ts
+
