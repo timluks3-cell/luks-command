@@ -3,7 +3,7 @@ import {readFileSync, writeFileSync} from 'node:fs';
 import vm from 'node:vm';
 if (process.env.CONTEXT !== 'deploy-preview') process.exit(0);
 const html=readFileSync('index.html','utf8');
-const style=html.match(/<style>([\s\S]*?)<\/style>/)[1];
+const style=html.match(/<style>([\s\S]*?)<\/style>/)[1]+'\n'+readFileSync('theme.css','utf8');
 const now=new Date().toISOString();
 const jobs=[
   ['BIM Coordinator','Example Engineering','Copenhagen',92,'discovered'],
@@ -35,3 +35,4 @@ for(const page of ['dashboard','scanner','career']){
   writeFileSync('dist/display-'+page+'.html','<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LUKS display preview</title><style>'+style+'</style>'+banner+shell.replace(/<button /g,'<button disabled '));
 }
 writeFileSync('dist/display-preview.html','<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LUKS display review</title><style>body{background:#050a12;color:#e8f3ff;font:16px/1.5 system-ui;margin:24px}a{color:#35d9ff}iframe{border:1px solid #215579;border-radius:12px;max-width:100%}nav{display:flex;gap:20px;flex-wrap:wrap}</style><h1>LUKS COMMAND display review</h1><p>Sample data only. Preview pages have no database connection or active job actions.</p><nav><a href="display-dashboard.html">Dashboard</a><a href="display-scanner.html">Scanner</a><a href="display-career.html">Tracking board</a></nav><h2>Mobile dashboard · 390px</h2><iframe title="Mobile dashboard preview" src="display-dashboard.html" width="390" height="1100"></iframe><h2>Desktop dashboard</h2><iframe title="Desktop dashboard preview" src="display-dashboard.html" width="1400" height="1100"></iframe></html>');
+

@@ -1,5 +1,5 @@
 [build]
-  command = "mkdir -p dist && cp index.html scanner.js job-role-categories.js dist/ && node scripts/build-display-preview.mjs"
+  command = "mkdir -p dist && cp index.html scanner.js job-role-categories.js theme.css dist/ && node scripts/build-display-preview.mjs"
   publish = "dist"
 
 [[headers]]
@@ -7,5 +7,6 @@
   [headers.values]
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+
 
 

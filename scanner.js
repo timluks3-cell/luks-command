@@ -1,10 +1,35 @@
 
 (function(){
+  function icon(name){
+    const paths={
+      dashboard:'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+      career:'<rect x="3" y="7" width="18" height="14" rx="3"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a20 20 0 0 0 18 0M12 11v4"/>',
+      scanner:'<circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5M8 10.5h5M10.5 8v5"/>',
+      projects:'<path d="m12 3 10 5-10 5L2 8l10-5ZM2 12l10 5 10-5M2 16l10 5 10-5"/>',
+      sites:'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',
+      tasks:'<rect x="5" y="4" width="15" height="17" rx="2"/><path d="M9 3h7v4H9zM9 12l2 2 4-4M9 18h6"/>',
+      settings:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
+      star:'<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>',
+      applied:'<path d="m21 3-7 18-4-7-7-4 18-7ZM10 14 21 3"/>',
+      interview:'<path d="M21 11a8 8 0 0 1-8 8H7l-4 3v-7a8 8 0 1 1 18-4Z"/><path d="M8 10h8M8 14h5"/>',
+      clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+      saved:'<path d="M6 3h12v18l-6-4-6 4V3Z"/>',
+      check:'<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+      alert:'<path d="m12 3 10 18H2L12 3ZM12 9v5M12 17h.01"/>',
+      mark:'<path d="M5 4v15h14M10 4v10h9"/>'
+    };
+    return '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'+(paths[name]||paths.dashboard)+'</svg>';
+  }
+  function matchBadge(value){
+    if(value==null||!Number.isFinite(Number(value)))return '<span class="match-score unknown">No score</span>';
+    const score=Math.max(0,Math.min(100,Number(value)));
+    return '<span class="score-ring" role="img" aria-label="'+score+'% match" style="--score:'+score+'"><span>'+esc(score)+'<small>%</small></span></span>';
+  }
   const oldRender = window.render;
   window.render = function(){
     if(!user&&!localMode) return login();
-    E("root").innerHTML='<div class="shell"><aside><div class="brand">Luks Command</div><nav>'+
-      ["dashboard","career","scanner","projects","sites","tasks","settings"].map(x=>'<button class="'+(page===x?"active":"")+'"'+(page===x?' aria-current="page"':'')+' onclick="go(\''+x+'\')">'+(x==="scanner"?"Job Scanner":x[0].toUpperCase()+x.slice(1))+'</button>').join("")+
+    E("root").innerHTML='<div class="shell"><aside><div class="brand"><span class="brand-mark">'+icon('mark')+'</span><span>Luks Command<small>Career workspace</small></span></div><nav aria-label="Main navigation">'+
+      ["dashboard","career","scanner","projects","sites","tasks","settings"].map(x=>'<button class="'+(page===x?"active":"")+'"'+(page===x?' aria-current="page"':'')+' onclick="go(\''+x+'\')">'+icon(x)+'<span>'+(x==="scanner"?"Job Scanner":x[0].toUpperCase()+x.slice(1))+'</span></button>').join("")+
       '</nav><div class="sidebar-status"><div class="kicker">WORKSPACE</div><span class="status-chip '+(localMode?'status-standby':'status-online')+'">'+(localMode?'LOCAL MODE':'SIGNED IN')+'</span></div></aside><main><div id="msg" role="status"></div><div id="view">Loading…</div></main></div>';
     loadPage();
   };
@@ -24,7 +49,7 @@
     const s=String(status||"standby").toLowerCase();
     if(["completed","complete","open","online"].includes(s)) return {label:s==="open"?"Verified open":s==="online"?"Online":"Complete",cls:"status-complete"};
     if(s==="pending") return {label:"QUEUED",cls:"status-scanning"};
-    if(s==="partial") return {label:"PARTIAL",cls:"status-error"};
+    if(s==="partial") return {label:"PARTIAL",cls:"status-warning"};
     if(["running","scanning","searching"].includes(s)) return {label:"SCANNING",cls:"status-scanning"};
     if(["failed","error","blocked"].includes(s)) return {label:"ERROR",cls:"status-error"};
     return {label:"STANDBY",cls:"status-standby"};
@@ -34,7 +59,9 @@
     return '<span class="status-chip '+x.cls+'">'+x.label+'</span>';
   }
   function metric(value,label){
-    return '<div class="metric"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div></div>';
+    const text=label.toLowerCase();
+    const kind=text.includes('strong')?'star':text.includes('interview')?'interview':text.includes('applied')||text.includes('application')?'applied':text.includes('error')?'alert':text.includes('current')||text.includes('target')?'career':'scanner';
+    return '<div class="metric metric-'+kind+'"><div class="metric-head"><span class="metric-icon">'+icon(kind)+'</span><div class="label">'+esc(label)+'</div></div><div class="value">'+esc(value)+'</div></div>';
   }
   function safeDate(v){return v?new Date(v).toLocaleDateString("en-GB"):"—"}
   function safeText(v,fallback="—"){return (v===null||v===undefined||v==="")?fallback:String(v)}
@@ -123,7 +150,7 @@ function inDenmark(location, country) {
   };
 
   function vacancyCard(j){
-    const score=j.match_score==null?'<div class="match-score unknown">NO SCORE</div>':'<div class="match-score">'+esc(j.match_score)+'% MATCH</div>';
+    const score=matchBadge(j.match_score);
     const verification=verifiedCurrent(j)?"Verified open":unavailableVacancy(j)?"Closed / expired":j.verified_open?"Needs recheck":safeText(j.verification_status,"Unverified");
     const ver='<span class="pill '+(verifiedCurrent(j)?'good':unavailableVacancy(j)?'bad':'')+'">'+esc(verification)+'</span>';
     const applied=String(j.status||"").toLowerCase()==="applied";
@@ -166,13 +193,14 @@ function inDenmark(location, country) {
   window.openCurrentJobs=function(){showAppliedInCurrent=false;go('scanner');};
   window.openCareerStage=function(stage){requestedCareerStage=TRACK_STAGES.includes(stage)?stage:'';go('career');};
   function dashboardVacancyCard(j){
-    return '<article class="vacancy dashboard-vacancy"><div class="vacancy-top"><div><div class="job-title">'+esc(j.title||'Vacancy')+'</div><div class="company">'+esc(j.company||'Unknown company')+'</div></div><span class="match-score '+(j.match_score==null?'unknown':'')+'">'+(j.match_score==null?'No score':esc(j.match_score)+'%')+'</span></div>'+
+    return '<article class="vacancy dashboard-vacancy"><div class="vacancy-top"><div><div class="job-title">'+esc(j.title||'Vacancy')+'</div><div class="company">'+esc(j.company||'Unknown company')+'</div></div>'+matchBadge(j.match_score)+'</div>'+
       '<div class="muted">'+esc(safeText(j.location))+' · '+esc(safeText(j.work_mode,'Work mode unspecified'))+'</div>'+
       '<div class="dashboard-job-facts"><span><b>Deadline</b> '+esc(safeDate(j.deadline))+'</span><span class="good">Verified '+esc(safeDate(j.verified_at))+'</span></div>'+
       '<div class="job-actions">'+(j.job_url?'<button class="btn primary" onclick="openExternal(\''+esc(j.job_url)+'\')">Open advert</button>':'')+'<button class="btn" onclick="setJobStatus(\''+esc(j.id)+'\',\'applied\')">Mark applied</button></div></article>';
   }
   function attentionPanel(title,rows,description,action,actionLabel){
-    return '<section class="card attention-card"><div class="row space"><h3>'+esc(title)+'</h3><span class="pill">'+rows.length+'</span></div><p class="muted">'+esc(description)+'</p>'+
+    const kind=title==='Closing soon'?'clock':title==='Saved and ready'?'saved':'interview';
+    return '<section class="card attention-card attention-'+kind+'"><div class="row space"><h3><span class="attention-icon">'+icon(kind)+'</span>'+esc(title)+'</h3><span class="pill">'+rows.length+'</span></div><p class="muted">'+esc(description)+'</p>'+
       (rows.length?'<ul class="attention-list">'+rows.slice(0,3).map(j=>'<li><b>'+esc(j.title||'Vacancy')+'</b><span class="muted">'+esc(j.company||'')+(title==='Closing soon'?' · '+esc(safeDate(j.deadline)):'')+'</span></li>').join('')+'</ul>':'<p class="muted attention-empty">Nothing to review here.</p>')+
       '<button class="btn" onclick="'+action+'">'+esc(actionLabel)+'</button></section>';
   }
@@ -204,7 +232,7 @@ function inDenmark(location, country) {
         attentionPanel('Saved and ready',attention.saved,'Current jobs you have shortlisted for an application.',"go('career')",'Review shortlisted jobs')+
         attentionPanel('Follow-up review',attention.followups,'Applied jobs with no tracking update for 7+ days. Review whether a follow-up is appropriate.',"openCareerStage('applied')",'Review applications')+'</div>'+
       '<div class="section-heading"><div><h2>Application progress</h2><p class="muted">Tracked jobs by stage · Includes your existing history</p></div><button class="btn" onclick="go(\'career\')">Open tracking board</button></div>'+
-      '<div class="application-progress">'+['saved','ready','applied','interview','offer'].map(stage=>'<button class="progress-stage" onclick="openCareerStage(\''+stage+'\')"><span>'+esc(stage[0].toUpperCase()+stage.slice(1))+'</span><b>'+count(stage)+'</b></button>').join('')+'</div>'+
+      '<div class="application-progress">'+['saved','ready','applied','interview','offer'].map(stage=>'<button class="progress-stage stage-'+stage+'" onclick="openCareerStage(\''+stage+'\')"><span>'+icon(stage==='ready'||stage==='offer'?'check':stage)+esc(stage[0].toUpperCase()+stage.slice(1))+'</span><b>'+count(stage)+'</b></button>').join('')+'</div>'+
       '<details class="card dashboard-scan"><summary>Scan details <span class="muted">'+(active?'Scan in progress':last?'Last run: '+esc(safeDate(last.started_at)):'No scan runs yet')+(sourceErrors?' · '+sourceErrors+' source errors':'')+'</span></summary>'+
         (scanError?'<p class="bad">Some scan details could not be loaded. Open the scanner to retry.</p>':'')+
         '<div id="scanRequestStatus" role="status" aria-live="polite">'+scanRequestCard(latestRequest)+'</div>'+
@@ -536,5 +564,6 @@ window.filterSourceRegistry = function(){
     tr.style.display=(textOk&&groupOk)?"":"none";
   });
 };
+
 
 
