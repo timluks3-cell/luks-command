@@ -4,8 +4,8 @@
   window.render = function(){
     if(!user&&!localMode) return login();
     E("root").innerHTML='<div class="shell"><aside><div class="brand">Luks Command</div><nav>'+
-      ["dashboard","career","scanner","projects","sites","tasks","settings"].map(x=>'<button class="'+(page===x?"active":"")+'" onclick="go(\''+x+'\')">'+(x==="scanner"?"Job Scanner":x[0].toUpperCase()+x.slice(1))+'</button>').join("")+
-      '</nav><div style="position:absolute;bottom:18px;left:26px"><div class="kicker">SYSTEM STATUS</div><span class="status-chip status-online">ONLINE</span></div></aside><main><div id="msg"></div><div id="view">Loading…</div></main></div>';
+      ["dashboard","career","scanner","projects","sites","tasks","settings"].map(x=>'<button class="'+(page===x?"active":"")+'"'+(page===x?' aria-current="page"':'')+' onclick="go(\''+x+'\')">'+(x==="scanner"?"Job Scanner":x[0].toUpperCase()+x.slice(1))+'</button>').join("")+
+      '</nav><div class="sidebar-status"><div class="kicker">WORKSPACE</div><span class="status-chip '+(localMode?'status-standby':'status-online')+'">'+(localMode?'LOCAL MODE':'SIGNED IN')+'</span></div></aside><main><div id="msg" role="status"></div><div id="view">Loading…</div></main></div>';
     loadPage();
   };
 
@@ -22,7 +22,7 @@
 
   function missionStatus(status){
     const s=String(status||"standby").toLowerCase();
-    if(["completed","complete","open","online"].includes(s)) return {label:s==="open"?"ONLINE":"COMPLETE",cls:"status-complete"};
+    if(["completed","complete","open","online"].includes(s)) return {label:s==="open"?"Verified open":s==="online"?"Online":"Complete",cls:"status-complete"};
     if(s==="pending") return {label:"QUEUED",cls:"status-scanning"};
     if(s==="partial") return {label:"PARTIAL",cls:"status-error"};
     if(["running","scanning","searching"].includes(s)) return {label:"SCANNING",cls:"status-scanning"};
@@ -117,7 +117,8 @@ function inDenmark(location, country) {
 
   function vacancyCard(j){
     const score=j.match_score==null?'<div class="match-score unknown">NO SCORE</div>':'<div class="match-score">'+esc(j.match_score)+'% MATCH</div>';
-    const ver=j.verified_open?statusChip("online"):statusChip(j.verification_status||"standby");
+    const verification=verifiedCurrent(j)?"Verified open":closedJob(j)?"Closed / expired":j.verified_open?"Needs recheck":safeText(j.verification_status,"Unverified");
+    const ver='<span class="pill '+(verifiedCurrent(j)?'good':closedJob(j)?'bad':'')+'">'+esc(verification)+'</span>';
     const applied=String(j.status||"").toLowerCase()==="applied";
     const closed=["closed","dismissed"].includes(String(j.status||"").toLowerCase())||["closed","expired"].includes(String(j.verification_status||"").toLowerCase());
     return '<article class="vacancy" data-job-row data-text="'+esc(((j.title||"")+" "+(j.company||"")+" "+(j.location||"")+" "+(j.source_name||"")).toLowerCase())+'" data-score="'+Number(j.match_score||0)+'">'+
@@ -130,7 +131,7 @@ function inDenmark(location, country) {
         '<div><b>Employment</b><br>'+esc(safeText(j.employment_type))+'</div>'+
         '<div><b>Source</b><br>'+esc(safeText(j.source_name))+'</div>'+
       '</div>'+
-      '<div class="row"><span class="muted">Verification</span>'+ver+'<span class="pill">'+esc((j.status||"discovered").toUpperCase())+'</span></div>'+
+      '<div class="verification-line"><div class="row">'+ver+'<span class="pill">'+esc(j.status||"discovered")+'</span></div><div class="muted">Last verified: '+esc(safeDate(j.verified_at))+'</div></div>'+
       '<div class="job-actions">'+
         (j.job_url?'<button class="btn primary" onclick="openExternal(\''+esc(j.job_url)+'\')">Open job advert</button>':'')+
         '<button class="btn '+(applied?'primary':'')+'" onclick="setJobStatus(\''+j.id+'\',\'applied\')">'+(applied?'Applied ✓':'Mark applied')+'</button>'+
@@ -144,7 +145,7 @@ function inDenmark(location, country) {
 
   window.dashboard = async function(){
     if(localMode){
-      E("view").innerHTML='<div class="mission-header"><div><div class="kicker">LUKS COMMAND — MISSION CONTROL</div><h1 class="command-title">Career Operations</h1><div class="command-sub">Sign in to activate live mission data and Supabase-backed job scanning.</div></div><button class="btn" onclick="signOut()">Exit local mode</button></div><div class="grid"><div class="card"><div class="panel-title">Career</div><p class="muted">Open source registry and target vacancies.</p></div><div class="card"><div class="panel-title">Job Scanner</div><p class="muted">Live scanning requires sign-in.</p></div><div class="card"><div class="panel-title">Projects</div><p class="muted">Continue project operations.</p></div><div class="card"><div class="panel-title">My Sites</div><p class="muted">Launch your connected web apps.</p><button class="btn primary" onclick="go(\'sites\')">Open sites</button></div></div>';
+      E("view").innerHTML='<div class="mission-header"><div><div class="kicker">LUKS COMMAND — MISSION CONTROL</div><h1 class="command-title">Career Operations</h1><div class="command-sub">Sign in to see your saved jobs, track applications and scan Danish vacancies.</div></div><button class="btn" onclick="signOut()">Exit local mode</button></div><div class="grid"><div class="card"><div class="panel-title">Career</div><p class="muted">Open source registry and target vacancies.</p></div><div class="card"><div class="panel-title">Job Scanner</div><p class="muted">Live scanning requires sign-in.</p></div><div class="card"><div class="panel-title">Projects</div><p class="muted">Continue project operations.</p></div><div class="card"><div class="panel-title">My Sites</div><p class="muted">Launch your connected web apps.</p><button class="btn primary" onclick="go(\'sites\')">Open sites</button></div></div>';
       return;
     }
     const [j,p,t,s,r,src,apps]=await Promise.all([
@@ -174,7 +175,7 @@ function inDenmark(location, country) {
         '<div class="row space" style="margin-top:10px"><span class="muted">Database</span>'+statusChip("online")+'</div>'+
         '<div class="row space" style="margin-top:10px"><span class="muted">Sources</span>'+statusChip(Number(last?.metadata?.failed_sources||0)>0?"error":(sources.length?"online":"standby"))+'</div>'+
       '</div></section></div>'+
-      '<div id="scanRequestStatus">'+scanRequestCard(latestRequest)+'</div>'+
+      '<div id="scanRequestStatus" role="status" aria-live="polite">'+scanRequestCard(latestRequest)+'</div>'+
       '<div class="metric-grid">'+
         metric(last?.vacancies_found||0,"Jobs Found")+
         metric(strong.length,"Strong Matches")+
@@ -189,7 +190,7 @@ function inDenmark(location, country) {
   };
 
   window.jobTable = function(rows){
-    return '<div id="jobsGrid" class="vacancy-grid">'+(rows.map(vacancyCard).join("")||'<div class="card muted">No jobs in this view.</div>')+'</div>';
+    return '<div id="jobsGrid" class="vacancy-grid">'+(rows.map(vacancyCard).join("")||'<div class="empty-state"><strong>No jobs match this view</strong>Try another status or broader filters. Current jobs need fresh vacancy verification.</div>')+'</div>';
   };
 
   window.filterJobRows = function(){
@@ -242,9 +243,9 @@ function inDenmark(location, country) {
     if(E("careerCount")) E("careerCount").textContent=rows.length+" jobs";
   };
   function trackingBoard(rows){
-    return '<div class="card"><div class="panel-title">Application Tracking Board</div><div class="muted">Move jobs between stages using the dropdown. Existing history is preserved.</div><div style="display:flex;gap:12px;overflow-x:auto;padding-top:14px">'+TRACK_STAGES.map(stage=>{
+    return '<div class="card"><div class="panel-title">Application Tracking Board</div><div class="muted board-hint">Scroll sideways to see all stages. Use the dropdown to move a job.</div><div class="tracking-scroll" tabindex="0" role="region" aria-label="Application stages">'+TRACK_STAGES.map(stage=>{
       const items=rows.filter(j=>String(j.status||"discovered").toLowerCase()===stage);
-      return '<section style="min-width:215px;max-width:250px;flex:1;background:var(--panel,#f1f5f9);border-radius:10px;padding:10px"><b>'+esc(stage.toUpperCase())+' ('+items.length+')</b>'+items.slice(0,40).map(j=>'<div style="padding:8px;background:var(--card,#fff);margin-top:8px;border-radius:8px"><b>'+esc(j.title||"Job")+'</b><div class="muted">'+esc(j.company||"")+'</div><select class="select" style="width:100%;margin-top:5px" onchange="setJobStatus(\''+j.id+'\',this.value)">'+TRACK_STAGES.map(st=>'<option value="'+st+'"'+(st===stage?' selected':'')+'>'+esc(st)+'</option>').join("")+'</select></div>').join("")+'</section>';
+      return '<section class="tracking-column"><b>'+esc(stage[0].toUpperCase()+stage.slice(1))+' <span class="muted">'+items.length+'</span></b>'+items.slice(0,40).map(j=>'<div class="tracking-card"><b>'+esc(j.title||"Job")+'</b><div class="muted">'+esc(j.company||"")+'</div><select class="select" aria-label="Stage for '+esc(j.title||"job")+'" style="margin-top:8px" onchange="setJobStatus(\''+j.id+'\',this.value)">'+TRACK_STAGES.map(st=>'<option value="'+st+'"'+(st===stage?' selected':'')+'>'+esc(st)+'</option>').join("")+'</select></div>').join("")+(items.length>40?'<p class="muted">Showing 40 of '+items.length+'. Use the stage filter below to view all.</p>':'')+(!items.length?'<p class="muted">No jobs yet</p>':'')+'</section>';
     }).join("")+'</div></div>';
   }
 
@@ -260,12 +261,12 @@ function inDenmark(location, country) {
       trackingBoard(careerJobs)+
       '<h2>Advanced Job Filters <span id="careerCount" class="muted"></span></h2>'+
       '<div class="card"><div class="jobs-toolbar" style="display:flex;flex-wrap:wrap;gap:10px">'+
-      '<input id="careerSearch" class="input" placeholder="Title, company, location" oninput="careerFilter()">'+
-      '<select id="careerStage" class="select" onchange="careerFilter()"><option value="">All stages</option>'+TRACK_STAGES.map(x=>'<option value="'+x+'">'+x+'</option>').join("")+'</select>'+
-      '<select id="careerRegion" class="select" onchange="careerFilter()"><option value="">All regions</option><option value="københavn">Copenhagen</option><option value="copenhagen">Copenhagen (English)</option><option value="sjælland">Zealand</option><option value="zealand">Zealand (English)</option><option value="fyn">Funen</option><option value="jylland">Jutland</option></select>'+
-      '<select id="careerWorkMode" class="select" onchange="careerFilter()"><option value="">All work modes</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option></select>'+
-      '<select id="careerScore" class="select" onchange="careerFilter()"><option value="0">All matches</option><option value="75">75%+</option><option value="85">85%+</option><option value="90">90%+</option></select>'+
-      '<select id="careerSort" class="select" onchange="careerFilter()"><option value="score">Best match</option><option value="newest">Most recently discovered</option><option value="deadline">Upcoming deadline</option></select></div></div>'+
+      '<input id="careerSearch" aria-label="Search jobs" class="input" placeholder="Title, company, location" oninput="careerFilter()">'+
+      '<select id="careerStage" aria-label="Application stage" class="select" onchange="careerFilter()"><option value="">All stages</option>'+TRACK_STAGES.map(x=>'<option value="'+x+'">'+x+'</option>').join("")+'</select>'+
+      '<select id="careerRegion" aria-label="Region" class="select" onchange="careerFilter()"><option value="">All regions</option><option value="københavn">Copenhagen</option><option value="copenhagen">Copenhagen (English)</option><option value="sjælland">Zealand</option><option value="zealand">Zealand (English)</option><option value="fyn">Funen</option><option value="jylland">Jutland</option></select>'+
+      '<select id="careerWorkMode" aria-label="Work mode" class="select" onchange="careerFilter()"><option value="">All work modes</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option></select>'+
+      '<select id="careerScore" aria-label="Minimum match score" class="select" onchange="careerFilter()"><option value="0">All matches</option><option value="75">75%+</option><option value="85">85%+</option><option value="90">90%+</option></select>'+
+      '<select id="careerSort" aria-label="Sort tracked jobs" class="select" onchange="careerFilter()"><option value="score">Best match</option><option value="newest">Most recently discovered</option><option value="deadline">Upcoming deadline</option></select></div></div>'+
       '<div id="careerResults"></div>';
     careerFilter();
   };
@@ -294,8 +295,8 @@ function inDenmark(location, country) {
     const diagRows=Array.isArray(last?.metadata?.diagnostics)?last.metadata.diagnostics:[];
     const failedDiagnostics=diagRows.filter(x=>!x.ok);
     E("view").innerHTML=
-      '<div class="mission-header"><div><div class="kicker">LIVE SEARCH OPERATIONS</div><h1 class="command-title">Job Scanner Console</h1><div class="command-sub">Supabase-backed search, verification and match ranking.</div></div><div class="row"><span id="scannerLiveState">'+statusChip(scannerState)+'</span><button id="scanNowBtn" class="mission-run" onclick="requestJobScan()">'+scanButtonLabel+'</button><button class="btn" onclick="openSources()">Open sources manually</button></div></div>'+
-      '<div id="scanRequestStatus">'+scanRequestCard(latestRequest)+'</div>'+
+      '<div class="mission-header"><div><div class="kicker">LIVE SEARCH OPERATIONS</div><h1 class="command-title">Job Scanner Console</h1><div class="command-sub">Search Danish vacancies, check live adverts and review your matches.</div></div><div class="row"><span id="scannerLiveState">'+statusChip(scannerState)+'</span><button id="scanNowBtn" class="mission-run" onclick="requestJobScan()">'+scanButtonLabel+'</button><button class="btn" onclick="openSources()">Open sources manually</button></div></div>'+
+      '<div id="scanRequestStatus" role="status" aria-live="polite">'+scanRequestCard(latestRequest)+'</div>'+
       '<div class="metric-grid">'+
         metric(last?last.vacancies_found:0,"Jobs Found")+
         metric(vacancyRows(jobRows).filter(x=>currentUnapplied(x)&&(x.match_score||0)>=75).length,"Strong Matches")+
@@ -306,11 +307,11 @@ function inDenmark(location, country) {
         metric(vacancyRows(jobRows).filter(currentUnapplied).length,"Current Vacancies")+
       '</div>'+
       '<div class="card"><div class="panel-title">How scan results are counted</div><p class="muted" style="margin-bottom:0"><b>Filtered Out</b> means candidate pages that were checked but did not qualify as a current matching vacancy. This can include generic career pages, expired or closed jobs, internships, student, trainee, elev or praktik roles, unrelated positions, or pages without enough evidence that the vacancy is still open. <b>Source Errors</b> means an entire source could not be read successfully.</p></div>'+
-      '<div class="scan-console"><div class="mission-panel"><div class="panel-title">Career Profile / Scan Targeting</div><div style="font-size:19px;font-weight:800;margin:10px 0">'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</div><div class="muted">Master CV: '+esc(p.master_cv_file_name||"Master CV")+'</div><div style="margin-top:14px" class="panel-title">Target Roles</div><div id="roleChips" class="row" style="margin-top:10px">'+((p.preferred_roles||[]).map(x=>roleChip(x)).join(""))+'</div><div class="row" style="margin-top:12px"><input id="newRoleInput" class="input" style="max-width:360px" placeholder="Add role, e.g. BIM Specialist" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addPreferredRole()}"><button class="btn primary" onclick="addPreferredRole()">Add role</button></div></div>'+
+      '<h2>Best Current Matches <span id="bestMatchesCount" class="muted"></span></h2><div class="jobs-toolbar"><select id="matchOrder" aria-label="Sort matches" class="select" onchange="refreshBestMatches()"><option value="score">Best match</option><option value="newest">Date searched: newest</option><option value="oldest">Date searched: oldest</option><option value="applied">Applied first</option><option value="closed">Closed first</option></select><select id="matchStatus" aria-label="Vacancy status" class="select" onchange="refreshBestMatches()"><option value="current">Current jobs</option><option value="applied">Applied</option><option value="closed">Closed</option><option value="all">All Denmark statuses</option><option value="review">Review missing locations</option></select><label class="pill" style="cursor:pointer"><input type="checkbox" id="showAppliedInCurrent" onchange="toggleAppliedInCurrent(this.checked)"> Show applied / history jobs</label><span class="muted">Current matches require verification within 7 days and an unexpired deadline · History is preserved · Denmark only</span></div><div id="bestMatchesGrid"></div>'+
+      '<details class="card scan-profile"><summary>Search profile and sources · '+(p.preferred_roles||[]).length+' target roles</summary><div class="scan-console scan-targeting"><div class="mission-panel"><div class="panel-title">Career Profile / Scan Targeting</div><div style="font-size:19px;font-weight:800;margin:10px 0">'+esc(p.professional_title||"Architectural Technologist / BIM Coordinator")+'</div><div class="muted">Master CV: '+esc(p.master_cv_file_name||"Master CV")+'</div><div style="margin-top:14px" class="panel-title">Target Roles</div><div id="roleChips" class="row" style="margin-top:10px">'+((p.preferred_roles||[]).map(x=>roleChip(x)).join(""))+'</div><div class="row" style="margin-top:12px"><input id="newRoleInput" aria-label="New target role" class="input" style="max-width:360px" placeholder="Add role, e.g. BIM Specialist" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addPreferredRole()}"><button class="btn primary" onclick="addPreferredRole()">Add role</button></div></div>'+
       categorySummary(p.preferred_roles||[])+
-       '<div class="mission-panel"><div class="panel-title">Registry Status</div><div class="metric-grid" style="grid-template-columns:1fr 1fr;margin-top:14px">'+metric(sourceRows.length,"Enabled Sources")+metric(sourceGroups.length,"Source Groups")+'</div><button class="btn" onclick="showSourceRegistry()">View source registry</button></div></div>'+
-      '<h2>Best Current Matches <span id="bestMatchesCount" class="muted"></span></h2><div class="jobs-toolbar"><select id="matchOrder" class="select" onchange="refreshBestMatches()"><option value="score">Best match</option><option value="newest">Date searched: newest</option><option value="oldest">Date searched: oldest</option><option value="applied">Applied first</option><option value="closed">Closed first</option></select><select id="matchStatus" class="select" onchange="refreshBestMatches()"><option value="current">Current jobs</option><option value="applied">Applied</option><option value="closed">Closed</option><option value="all">All Denmark statuses</option><option value="review">Review missing locations</option></select><label class="pill" style="cursor:pointer"><input type="checkbox" id="showAppliedInCurrent" onchange="toggleAppliedInCurrent(this.checked)"> Show applied / history jobs</label><span class="muted">Current matches require verification within 7 days and an unexpired deadline · History is preserved · Denmark only</span></div><div id="bestMatchesGrid"></div>'+
-      '<h2>All Job Postings Found</h2><div class="card"><div class="jobs-toolbar"><input id="discoveryFilter" class="input" style="max-width:360px" placeholder="Filter discovered postings" oninput="filterDiscoveries()"><select id="discoveryStatus" class="select" style="max-width:220px" onchange="filterDiscoveries()"><option value="">All verification states</option><option value="open">Verified open</option><option value="unverified">Unverified</option><option value="closed">Closed</option><option value="expired">Expired</option><option value="blocked">Blocked</option><option value="error">Error</option></select></div>'+discoveryTable(discoveryRows)+'</div>'+
+       '<div class="mission-panel"><div class="panel-title">Registry Status</div><div class="metric-grid" style="grid-template-columns:1fr 1fr;margin-top:14px">'+metric(sourceRows.length,"Enabled Sources")+metric(sourceGroups.length,"Source Groups")+'</div><button class="btn" onclick="showSourceRegistry()">View source registry</button></div></div></details>'+
+      '<h2>All Job Postings Found</h2><div class="card"><div class="jobs-toolbar"><input id="discoveryFilter" aria-label="Search discovered postings" class="input" style="max-width:360px" placeholder="Filter discovered postings" oninput="filterDiscoveries()"><select id="discoveryStatus" aria-label="Verification state" class="select" style="max-width:220px" onchange="filterDiscoveries()"><option value="">All verification states</option><option value="open">Verified open</option><option value="unverified">Unverified</option><option value="closed">Closed</option><option value="expired">Expired</option><option value="blocked">Blocked</option><option value="error">Error</option></select></div>'+discoveryTable(discoveryRows)+'</div>'+
       '<h2>Job Source Status</h2><div class="source-list">'+sourceRows.slice(0,24).map(sourceNode).join("")+'</div>'+
       (failedDiagnostics.length?'<h2>Source Errors — Last Scan</h2><div class="card"><div class="muted" style="margin-bottom:10px">These sources were processed but not successfully read, so they are not counted as checked.</div><div class="source-list">'+failedDiagnostics.map(d=>'<div class="source-node"><div class="row space"><div class="name">'+esc(d.source||"Source")+'</div>'+statusChip("error")+'</div><div class="stamp">'+esc(d.provider||"generic")+' · '+esc(d.error||"Source could not be read")+'</div></div>').join("")+'</div></div>':'')+
       '<h2>Recent Scan Runs</h2><div class="card" style="overflow:auto"><table><thead><tr><th>Date</th><th>Status</th><th>Sources</th><th>Found</th><th>Verified</th><th>Imported</th></tr></thead><tbody>'+
@@ -322,7 +323,7 @@ function inDenmark(location, country) {
 
   function discoveryTable(rows){
     if(!rows.length) return '<div class="muted">No discovered postings are stored yet.</div>';
-    return '<div style="overflow:auto"><table id="discoveryTable"><thead><tr><th>Role</th><th>Company</th><th>Source</th><th>Match</th><th>Verification</th><th>Reason</th><th>Link</th></tr></thead><tbody>'+
+    return '<div class="table-scroll" tabindex="0" role="region" aria-label="Discovered postings"><table id="discoveryTable"><thead><tr><th>Role</th><th>Company</th><th>Source</th><th>Match</th><th>Verification</th><th>Reason</th><th>Link</th></tr></thead><tbody>'+
       rows.map(d=>{
         const text=((d.title||"")+" "+(d.company||"")+" "+(d.location||"")+" "+(d.source_name||"")).toLowerCase();
         const state=d.verification_status||"unverified";
@@ -352,12 +353,12 @@ function inDenmark(location, country) {
   function categorySummary(preferredRoles){
     const configured=new Set((preferredRoles||[]).map(x=>String(x).toLocaleLowerCase()));
     const groups=window.LUKS_JOB_CATEGORIES||{};
-    return '<div class="panel-title" style="margin-top:18px">Job-search categories · Denmark only</div>'+
-      '<p class="muted">Selected categories are part of your Supabase career profile. Existing roles are retained.</p>'+
+    return '<section class="mission-panel target-categories"><div class="panel-title">Job-search categories · Denmark only</div>'+
+      '<p class="muted">Configured roles from your saved career profile.</p><div class="role-categories">'+
       Object.entries(groups).map(([name,titles])=>{
         const included=titles.filter(x=>configured.has(x.toLocaleLowerCase()));
         return '<details style="margin:8px 0;padding:10px;border:1px solid #21425a;border-radius:8px"><summary style="cursor:pointer">'+esc(name)+' <span class="muted">('+included.length+'/'+titles.length+' configured)</span></summary><div class="row" style="margin-top:9px">'+titles.map(t=>'<span class="pill" style="'+(configured.has(t.toLocaleLowerCase())?'':'opacity:.45')+'">'+esc(t)+'</span>').join('')+'</div></details>';
-      }).join('');
+      }).join('')+'</div></section>';
   }
 
   function roleChip(role){
