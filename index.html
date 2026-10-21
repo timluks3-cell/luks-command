@@ -140,6 +140,77 @@ tr:hover td{background:#0c1c2a}
   main{padding:16px 12px 42px}.metric-grid{grid-template-columns:repeat(2,1fr)}.vacancy-grid{grid-template-columns:1fr}.job-meta{grid-template-columns:1fr}
   .mission-header{align-items:stretch}.command-title{font-size:25px}.mission-run{width:100%}.sources{columns:1}
 }
+/* Display refresh: keep navigation, cards and controls readable at every width. */
+:root{--card:#102237;--muted:#a0b5c8;color-scheme:dark}
+body{line-height:1.5}
+aside{display:flex;flex-direction:column;overflow-y:auto;min-width:0}
+.brand{font-size:18px;letter-spacing:.04em;white-space:nowrap}
+.sidebar-status{margin-top:auto;padding:24px 12px 4px}
+main{min-width:0}
+.command-title{font-size:clamp(25px,3vw,34px);text-transform:none;letter-spacing:-.035em;line-height:1.15}
+h2{font-size:18px;letter-spacing:0;text-transform:none;color:var(--text)}
+.command-sub{color:var(--muted);max-width:65ch}
+.mission-header>div{min-width:0}
+.mission-header>.row{justify-content:flex-end}
+.panel-title{letter-spacing:.06em}
+.metric-grid{grid-template-columns:repeat(auto-fit,minmax(135px,1fr))}
+.metric .label{color:var(--muted);letter-spacing:.04em;line-height:1.4}
+.metric .value{font-variant-numeric:tabular-nums;line-height:1.2}
+.scan-console{margin:16px 0;align-items:start}
+.scan-targeting{grid-template-columns:minmax(0,1fr) minmax(230px,.45fr)}
+.scan-targeting .target-categories{grid-column:1/-1}
+.scan-targeting>.mission-panel:last-child{grid-column:2;grid-row:1}
+.target-roles{margin-top:16px}
+summary{cursor:pointer;color:var(--text);font-weight:650}
+summary:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--cyan);outline-offset:4px}
+.target-categories>p{margin-bottom:12px}
+.role-categories{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:8px}
+.role-categories details{align-self:start;margin:0!important}
+.jobs-toolbar{align-items:end;gap:12px}
+.jobs-toolbar>.input{flex:2 1 240px;width:auto}
+.jobs-toolbar>.select,.jobs-toolbar>.filter-field{flex:1 1 160px;width:auto;min-width:0}
+.filter-field{display:grid;gap:5px;color:var(--muted);font-size:12px}
+.jobs-toolbar>.muted{flex-basis:100%}
+.jobs-toolbar>.pill{min-height:44px;letter-spacing:0;text-transform:none;font-size:12px}
+input[type=checkbox]{accent-color:var(--cyan);width:17px;height:17px}
+.vacancy-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr))}
+.vacancy{display:flex;flex-direction:column;gap:12px;min-width:0;padding:20px}
+.vacancy-top>div:first-child{min-width:0}
+.job-title,.company,.source-node,.tracking-card{overflow-wrap:anywhere}
+.job-title{font-size:18px;font-weight:700}
+.match-score{font-size:13px;padding:6px 8px;white-space:nowrap}
+.job-meta{margin:0;gap:12px}
+.job-actions{margin-top:auto}
+.job-actions .btn{min-height:44px}
+.verification-line{padding:10px 0}
+.tracking-scroll{display:flex;gap:12px;overflow-x:auto;padding:14px 0 8px;scroll-snap-type:x proximity}
+.tracking-column{min-width:240px;max-width:280px;flex:1;scroll-snap-align:start;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:12px}
+.tracking-card{padding:12px;background:var(--card);margin-top:10px;border:1px solid var(--line);border-radius:8px}
+.tracking-card b{display:block;font-size:14px;line-height:1.4}
+.board-hint{margin-top:5px}
+.table-scroll{overflow:auto;max-width:100%}
+th{color:var(--muted);white-space:nowrap}
+td{min-width:100px;overflow-wrap:anywhere}
+td:first-child{min-width:200px}
+.empty-state{padding:28px;text-align:center;border:1px dashed var(--line2);border-radius:10px;grid-column:1/-1;color:var(--muted)}
+.empty-state strong{display:block;color:var(--text);margin-bottom:6px}
+.roleChips button,#roleChips button{color:var(--text);min-width:28px;min-height:28px}
+@media(max-width:1100px){.scan-targeting{grid-template-columns:1fr}.scan-targeting .target-categories,.scan-targeting>.mission-panel:last-child{grid-column:auto;grid-row:auto}}
+@media(max-width:760px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  aside{overflow:visible}.sidebar-status{display:none}
+  nav{padding-bottom:4px}nav button{min-height:44px;flex-shrink:0}
+  .mission-header{flex-direction:column;gap:14px}
+  .mission-header>.row{justify-content:flex-start;width:100%}
+  .mission-header>.btn{align-self:flex-start}
+  .metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mission-run{min-height:44px;letter-spacing:.04em}
+  .vacancy{padding:16px}.vacancy-top{flex-wrap:wrap;gap:10px}
+  .job-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .jobs-toolbar>.input,.jobs-toolbar>.select,.jobs-toolbar>.filter-field{flex-basis:100%;max-width:none!important}
+  .modal{padding:16px}.tracking-column{min-width:85%;max-width:85%}
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}button:hover{transform:none}}
 </style>
 </head>
 <body><div id="root">Starting Luks Command…</div>
