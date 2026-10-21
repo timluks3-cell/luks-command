@@ -192,7 +192,7 @@ function controls(){
 }
 let initial='system';try{initial=localStorage.getItem('luks-theme')||'system';}catch{}theme(initial);
 matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{if(window.__luksTheme==='system')theme('system');});
-new MutationObserver(controls).observe(document.getElementById('root'),{childList:true,subtree:true});controls();
+new MutationObserver(controls).observe(document.getElementById('root')||document.body,{childList:true,subtree:true});controls();
 window.addEventListener('beforeunload',e=>{if(state?.dirty){e.preventDefault();e.returnValue='';}});
 window.LuksWorkspaceExports={pdfBytes,wordBlob}; // Pure document function, also used by release tests.
 })();
