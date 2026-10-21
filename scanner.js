@@ -166,7 +166,7 @@ function inDenmark(location, country) {
         '<div><b>Source</b><br>'+esc(safeText(j.source_name))+'</div>'+
       '</div>'+
       '<div class="verification-line"><div class="row">'+ver+'<span class="pill">'+esc(j.status||"discovered")+'</span></div><div class="muted">Last verified: '+esc(safeDate(j.verified_at))+'</div></div>'+
-      '<div class="job-actions">'+
+      '<div class="job-actions"><button class="btn" onclick="openJobWorkspace(\''+esc(j.id)+'\')">Job workspace</button>'+
         (j.job_url?'<button class="btn primary" onclick="openExternal(\''+esc(j.job_url)+'\')">Open job advert</button>':'')+
         '<button class="btn '+(applied?'primary':'')+'" onclick="setJobStatus(\''+j.id+'\',\'applied\')">'+(applied?'Applied ✓':'Mark applied')+'</button>'+
         '<button class="btn '+(closed?'danger':'')+'" onclick="setJobStatus(\''+j.id+'\',\'closed\')">'+(closed?'Closed ✓':'Mark closed')+'</button>'+
@@ -196,7 +196,7 @@ function inDenmark(location, country) {
     return '<article class="vacancy dashboard-vacancy"><div class="vacancy-top"><div><div class="job-title">'+esc(j.title||'Vacancy')+'</div><div class="company">'+esc(j.company||'Unknown company')+'</div></div>'+matchBadge(j.match_score)+'</div>'+
       '<div class="muted">'+esc(safeText(j.location))+' · '+esc(safeText(j.work_mode,'Work mode unspecified'))+'</div>'+
       '<div class="dashboard-job-facts"><span><b>Deadline</b> '+esc(safeDate(j.deadline))+'</span><span class="good">Verified '+esc(safeDate(j.verified_at))+'</span></div>'+
-      '<div class="job-actions">'+(j.job_url?'<button class="btn primary" onclick="openExternal(\''+esc(j.job_url)+'\')">Open advert</button>':'')+'<button class="btn" onclick="setJobStatus(\''+esc(j.id)+'\',\'applied\')">Mark applied</button></div></article>';
+      '<div class="job-actions"><button class="btn" onclick="openJobWorkspace(\''+esc(j.id)+'\')">Job workspace</button>'+(j.job_url?'<button class="btn primary" onclick="openExternal(\''+esc(j.job_url)+'\')">Open advert</button>':'')+'<button class="btn" onclick="setJobStatus(\''+esc(j.id)+'\',\'applied\')">Mark applied</button></div></article>';
   }
   function attentionPanel(title,rows,description,action,actionLabel){
     const kind=title==='Closing soon'?'clock':title==='Saved and ready'?'saved':'interview';
@@ -299,7 +299,7 @@ function inDenmark(location, country) {
   function trackingBoard(rows){
     return '<div class="card"><div class="panel-title">Application Tracking Board</div><div class="muted board-hint">Scroll sideways to see all stages. Use the dropdown to move a job.</div><div class="tracking-scroll" tabindex="0" role="region" aria-label="Application stages">'+TRACK_STAGES.map(stage=>{
       const items=rows.filter(j=>String(j.status||"discovered").toLowerCase()===stage);
-      return '<section class="tracking-column"><b>'+esc(stage[0].toUpperCase()+stage.slice(1))+' <span class="muted">'+items.length+'</span></b>'+items.slice(0,40).map(j=>'<div class="tracking-card"><b>'+esc(j.title||"Job")+'</b><div class="muted">'+esc(j.company||"")+'</div><select class="select" aria-label="Stage for '+esc(j.title||"job")+'" style="margin-top:8px" onchange="setJobStatus(\''+j.id+'\',this.value)">'+TRACK_STAGES.map(st=>'<option value="'+st+'"'+(st===stage?' selected':'')+'>'+esc(st)+'</option>').join("")+'</select></div>').join("")+(items.length>40?'<p class="muted">Showing 40 of '+items.length+'. Use the stage filter below to view all.</p>':'')+(!items.length?'<p class="muted">No jobs yet</p>':'')+'</section>';
+      return '<section class="tracking-column"><b>'+esc(stage[0].toUpperCase()+stage.slice(1))+' <span class="muted">'+items.length+'</span></b>'+items.slice(0,40).map(j=>'<div class="tracking-card"><b>'+esc(j.title||"Job")+'</b><div class="muted">'+esc(j.company||"")+'</div><button class="btn" onclick="openJobWorkspace(\''+esc(j.id)+'\')">Workspace</button><select class="select" aria-label="Stage for '+esc(j.title||"job")+'" style="margin-top:8px" onchange="setJobStatus(\''+j.id+'\',this.value)">'+TRACK_STAGES.map(st=>'<option value="'+st+'"'+(st===stage?' selected':'')+'>'+esc(st)+'</option>').join("")+'</select></div>').join("")+(items.length>40?'<p class="muted">Showing 40 of '+items.length+'. Use the stage filter below to view all.</p>':'')+(!items.length?'<p class="muted">No jobs yet</p>':'')+'</section>';
     }).join("")+'</div></div>';
   }
 
@@ -552,6 +552,7 @@ function inDenmark(location, country) {
     E("view").innerHTML='<div class="mission-header"><div><div class="kicker">SYSTEM CONFIGURATION</div><h1 class="command-title">Settings</h1></div>'+statusChip("online")+'</div><div class="card"><b>Mode</b><p class="muted">'+(localMode?"Local mode":"Online Supabase mode")+'</p></div><div class="card"><b>Daily Job Search</b><p class="muted">Starts at 08:00 Denmark time using your saved career profile. Collection continues with the browser closed; unavailable sources are reported.</p></div>';
   };
 
+  window.LuksBridge={user:()=>user,get db(){return db;},denmarkJob,refresh:()=>loadPage()};
   if(user||localMode) render();
 })();
 
