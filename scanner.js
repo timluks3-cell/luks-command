@@ -23,6 +23,8 @@
   function missionStatus(status){
     const s=String(status||"standby").toLowerCase();
     if(["completed","complete","open","online"].includes(s)) return {label:s==="open"?"ONLINE":"COMPLETE",cls:"status-complete"};
+    if(s==="pending") return {label:"QUEUED",cls:"status-scanning"};
+    if(s==="partial") return {label:"PARTIAL",cls:"status-error"};
     if(["running","scanning","searching"].includes(s)) return {label:"SCANNING",cls:"status-scanning"};
     if(["failed","error","blocked"].includes(s)) return {label:"ERROR",cls:"status-error"};
     return {label:"STANDBY",cls:"status-standby"};
@@ -292,7 +294,7 @@ function inDenmark(location, country) {
     const diagRows=Array.isArray(last?.metadata?.diagnostics)?last.metadata.diagnostics:[];
     const failedDiagnostics=diagRows.filter(x=>!x.ok);
     E("view").innerHTML=
-      '<div class="mission-header"><div><div class="kicker">LIVE SEARCH OPERATIONS</div><h1 class="command-title">Job Scanner Console</h1><div class="command-sub">Supabase-backed search, verification and match ranking.</div></div><div class="row">'+statusChip(scannerState)+'<button id="scanNowBtn" class="mission-run" onclick="requestJobScan()">'+scanButtonLabel+'</button><button class="btn" onclick="openSources()">Open sources manually</button></div></div>'+
+      '<div class="mission-header"><div><div class="kicker">LIVE SEARCH OPERATIONS</div><h1 class="command-title">Job Scanner Console</h1><div class="command-sub">Supabase-backed search, verification and match ranking.</div></div><div class="row"><span id="scannerLiveState">'+statusChip(scannerState)+'</span><button id="scanNowBtn" class="mission-run" onclick="requestJobScan()">'+scanButtonLabel+'</button><button class="btn" onclick="openSources()">Open sources manually</button></div></div>'+
       '<div id="scanRequestStatus">'+scanRequestCard(latestRequest)+'</div>'+
       '<div class="metric-grid">'+
         metric(last?last.vacancies_found:0,"Jobs Found")+
@@ -473,6 +475,8 @@ function inDenmark(location, country) {
       const req=r.data;
       const holder=E("scanRequestStatus");
       if(holder&&req) holder.innerHTML=scanRequestCard(req);
+      const liveState=E("scannerLiveState");
+      if(liveState&&req) liveState.innerHTML=statusChip(req.status);
       if(req&&["completed","partial","failed"].includes(req.status)){
         clearInterval(window.__scanPoll);
         window.__scanPoll=null;

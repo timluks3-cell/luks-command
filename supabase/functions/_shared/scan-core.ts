@@ -191,8 +191,15 @@ function roleTerms(profile:any){
 }
 
 function excludedPosition(title:string,text=""){
-  const t=(title+" "+text).toLowerCase();
-  return EXCLUDED_POSITION_TERMS.some(x=>t.includes(x));
+  // A senior advert may mention interns or international projects in its description.
+  // Exclusions describe the vacancy title, not every person mentioned on the page.
+  const value=title.normalize("NFC").toLowerCase();
+  if(/praktikant(?:er)?(?=$|[^\p{L}])/iu.test(value)) return true;
+  return EXCLUDED_POSITION_TERMS.some(term=>{
+    const escaped=term.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+    const suffix=term==="studentermedhj"?"":"(?=$|[^\\p{L}])";
+    return new RegExp("(^|[^\\p{L}])"+escaped+suffix,"iu").test(value);
+  });
 }
 
 function genericListing(title:string,url:string){
@@ -653,6 +660,84 @@ async function scanCsod(source:any, url:string, terms:string[]){
   }
 }
 
+// Extract only vacancy-specific structured data; never infer workplace from a footer.
+function jobPostingEvidence(html:string){
+  const postings:any[]=[];
+  const visit=(node:any)=>{
+    if(Array.isArray(node)){node.forEach(visit);return;}
+    if(!node || typeof node!=="object") return;
+    const types=Array.isArray(node["@type"])?node["@type"]:[node["@type"]];
+    if(types.some((t:any)=>t==="JobPosting"||t==="https://schema.org/JobPosting")) postings.push(node);
+    if(node["@graph"]) visit(node["@graph"]);
+  };
+  for(const match of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)){
+    try{visit(JSON.parse(match[1]));}catch{/* Invalid JSON is not location evidence. */}
+  }
+  if(postings.length!==1) return {ambiguous:postings.length>1,location:null,country:null,title:null,company:null,publishedAt:null,deadline:null};
+  const job=postings[0];
+  const locations=Array.isArray(job.jobLocation)?job.jobLocation:[job.jobLocation];
+  const places:string[]=[],countries:string[]=[];
+  for(const place of locations){
+    const address=place?.address;
+    if(!address || typeof address!=="object") continue;
+    const country=typeof address.addressCountry==="string"?address.addressCountry:address.addressCountry?.name;
+    if(country) countries.push(String(country));
+    const value=[address.addressLocality,address.addressRegion,country].filter(Boolean).join(", ");
+    if(value) places.push(value);
+  }
+  const unique=[...new Set(countries.map(c=>c.trim().toLowerCase()))];
+  return {ambiguous:false,location:places.join(" / ")||null,country:unique.length===1?unique[0]:unique.length>1?"mixed":null,
+    title:job.title?strip(String(job.title)):null,company:job.hiringOrganization?.name||null,
+    publishedAt:job.datePosted||null,deadline:job.validThrough||null};
+}
+
+// Rotate bounded search hints through the complete saved role set over successive days.
+function searchRoleHints(terms:string[],day=Math.floor(Date.now()/86400000),limit=10){
+  if(!terms.length) return [];
+  const start=(day*limit)%terms.length;
+  return Array.from({length:Math.min(limit,terms.length)},(_,i)=>terms[(start+i)%terms.length]);
+}
+
+async function checkGenericVacancy(c:any,terms:string[]){
+    const pg=await fetchText(c.url,10000);
+    if(!pg.ok) return {...c,verified:false,reason:"page fetch failed"};
+    const txt=norm(pg.text);
+    const evidence=jobPostingEvidence(pg.text);
+    const title=evidence.title||strip((pg.text.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)||[])[1]||c.title);
+    const expired=!!evidence.deadline && Number.isFinite(Date.parse(evidence.deadline)) && Date.parse(evidence.deadline)<Date.now();
+    const closed=expired||CLOSED_WORDS.some(x=>txt.includes(x));
+    const excluded=excludedPosition(title,txt);
+    const generic=evidence.ambiguous||genericListing(title,pg.url||c.url);
+    const structuredJob=!!evidence.title;
+    const detailSignal=structuredJob || /apply now|apply for this job|ansøg nu|søg jobbet|job description|job details|requisition|stillingens indhold/i.test(txt);
+    const role=roleRelevant(title,txt,terms);
+    const verified=!closed && !excluded && !generic && detailSignal && role;
+    return {
+      ...c,title,url:pg.url||c.url,verified,
+      location:evidence.location,country:evidence.country,companyOverride:evidence.company,
+      publishedAt:evidence.publishedAt,deadline:evidence.deadline,
+      reason:verified?"specific live job advert with application/job-posting signal":closed?"closed/expired wording or deadline":excluded?"internship/student/trainee position excluded":generic?"generic career/listing page excluded":"insufficient specific job evidence",
+      score:verified?matchScore(txt,title):null,
+      snippet:strip(pg.text).slice(0,1400)
+    };
+}
+
+// Employer-independent discovery: a saved role can find companies outside the registry.
+async function scanRoleDiscovery(source:any,profile:any){
+  let role="";
+  try{role=decodeURIComponent(String(source.domain).slice("discovery:dk:".length));}catch{}
+  const saved=Array.isArray(profile?.preferred_roles)?profile.preferred_roles:[];
+  if(!role || !saved.some((value:any)=>String(value).toLowerCase()===role.toLowerCase())){
+    return {source,checked:[],searchOk:false,provider:"role-discovery",error:"Discovery role is not in the saved career profile"};
+  }
+  const results=await webSearch('"'+role.replace(/"/g,"")+'" (Denmark OR Danmark) (job OR stilling)');
+  const candidates=[...new Map(results.filter((c:any)=>!genericListing(c.title,c.url)&&!excludedPosition(c.title)).map((c:any)=>[c.url,c])).values()].slice(0,8);
+  const checked=(await Promise.all(candidates.map((c:any)=>checkGenericVacancy(c,[role.toLowerCase()]))))
+    .map((job:any)=>job.companyOverride?job:{...job,verified:false,reason:"Discovery advert has no identifiable hiring organization"});
+  return {source,checked,searchOk:results.length>0,provider:"role-discovery",
+    error:results.length?null:"Search returned no readable results; coverage could not be confirmed"};
+}
+
 async function scanGeneric(source:any, url:string, terms:string[]){
   const now=new Date().toISOString();
   const candidates=new Map<string,{title:string,url:string,origin:string}>();
@@ -673,7 +758,7 @@ async function scanGeneric(source:any, url:string, terms:string[]){
 
   let host=hostOf((home && home.ok && home.url) ? home.url : url);
   if(host){
-    const roleQuery=terms.slice(0,10).map(x=>'"'+x.replace(/"/g,"")+'"').join(" OR ");
+    const roleQuery=searchRoleHints(terms).map(x=>'"'+x.replace(/"/g,"")+'"').join(" OR ");
     const q='site:'+host+' ('+roleQuery+')';
     const sr=await fetchText("https://html.duckduckgo.com/html/?q="+encodeURIComponent(q),11000);
     if(sr.ok){
@@ -687,22 +772,7 @@ async function scanGeneric(source:any, url:string, terms:string[]){
 
   const checked:any[]=[];
   for(const c of [...candidates.values()].slice(0,8)){
-    const pg=await fetchText(c.url,10000);
-    if(!pg.ok){checked.push({...c,verified:false,reason:"page fetch failed"});continue}
-    const txt=norm(pg.text);
-    const closed=CLOSED_WORDS.some(x=>txt.includes(x));
-    const excluded=excludedPosition(c.title,txt);
-    const generic=genericListing(c.title,pg.url||c.url);
-    const structuredJob=/"@type"\s*:\s*"JobPosting"/i.test(pg.text);
-    const detailSignal=structuredJob || /apply now|apply for this job|ansøg nu|søg jobbet|job description|job details|requisition|stillingens indhold/i.test(txt);
-    const role=roleRelevant(c.title,txt,terms);
-    const verified=!closed && !excluded && !generic && detailSignal && role;
-    checked.push({
-      ...c,url:pg.url||c.url,verified,
-      reason:verified?"specific live job advert with application/job-posting signal":closed?"closed/expired wording":excluded?"internship/student/trainee position excluded":generic?"generic career/listing page excluded":"insufficient specific job evidence",
-      score:verified?matchScore(txt,c.title):null,
-      snippet:strip(pg.text).slice(0,1400)
-    });
+    checked.push(await checkGenericVacancy(c,terms));
   }
   return {source,checked,checkedAt:now,searchOk:home.ok || checked.length>0,provider:"generic",error:home.ok?null:(home.error||("HTTP "+home.status))};
 }
@@ -851,6 +921,7 @@ async function scanJobindex(source:any,terms:string[]){
 }
 
 async function scanSource(source:any, profile:any){
+  if(/^discovery:dk:/i.test(String(source.domain||""))) return scanRoleDiscovery(source,profile);
   const configured=normalizeUrl(source.domain||"",source.name||"");
   const terms=roleTerms(profile);
   const sourceName=String(source.name||"").toLowerCase();
@@ -899,4 +970,5 @@ function parseCsodDate(raw:string){
 }
 
 
-export { scanSource, inDenmark, parseCsodDate, atsKind };
+export { scanSource, inDenmark, parseCsodDate, atsKind, jobPostingEvidence, searchRoleHints, excludedPosition };
+
