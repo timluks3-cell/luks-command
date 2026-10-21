@@ -210,6 +210,36 @@ td:first-child{min-width:200px}
   .jobs-toolbar>.input,.jobs-toolbar>.select,.jobs-toolbar>.filter-field{flex-basis:100%;max-width:none!important}
   .modal{padding:16px}.tracking-column{min-width:85%;max-width:85%}
 }
+.dashboard-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:20px 0 26px}
+.dashboard-summary .value{font-size:32px}.dashboard-summary .label{text-transform:none;font-size:13px;letter-spacing:0}
+.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:26px 0 14px}
+.section-heading h2{margin:0}.section-heading p{margin:4px 0 0}
+.section-heading .btn{flex-shrink:0}
+.dashboard-vacancy{gap:10px;padding:18px}.dashboard-vacancy .job-title{font-size:17px}
+.dashboard-job-facts{display:flex;flex-wrap:wrap;gap:5px 16px;font-size:12px;color:var(--muted)}
+.dashboard-job-facts b{color:var(--text);font-weight:600}
+.dashboard-vacancy .job-actions{border-top:0;padding-top:6px}
+.attention-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.attention-card{display:flex;flex-direction:column;min-width:0;padding:18px}
+.attention-card h3{font-size:16px;margin:0}.attention-card p{margin:10px 0}
+.attention-list{list-style:none;padding:0;margin:0 0 16px;flex:1}
+.attention-list li{display:grid;gap:3px;padding:10px 0;border-top:1px solid var(--line);overflow-wrap:anywhere;font-size:13px}
+.attention-card .btn{margin-top:auto;align-self:flex-start;min-height:44px}.attention-empty{padding:10px 0}
+.application-progress{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.progress-stage{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:14px;background:var(--panel);border:1px solid var(--line);border-radius:9px;color:var(--text);cursor:pointer;min-width:0;min-height:52px}
+.progress-stage:hover{border-color:var(--cyan)}.progress-stage span{font-size:13px}.progress-stage b{font-size:23px;font-variant-numeric:tabular-nums}
+.dashboard-scan{margin-top:28px}.dashboard-scan>summary .muted{margin-left:12px;font-weight:400}
+.dashboard-scan #scanRequestStatus{margin:18px 0}.dashboard-scan h3{font-size:15px;margin:20px 0 10px}
+.dashboard-scan .source-list{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))}
+.dashboard-shortcuts{display:flex;gap:10px;flex-wrap:wrap}.dashboard-shortcuts .btn{min-height:44px}
+@media(max-width:1100px){.attention-grid{grid-template-columns:1fr}.application-progress{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}}
+@media(max-width:760px){
+ .dashboard-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0 22px}
+ .dashboard-summary .value{font-size:28px}.section-heading{align-items:flex-start;flex-direction:column;gap:10px}
+ .dashboard-header>.row{gap:8px}.dashboard-header #dashboardScanBtn{min-height:44px}
+ .dashboard-scan>summary .muted{display:block;margin:6px 0 0}
+ .application-progress{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}button:hover{transform:none}}
 </style>
 </head>
