@@ -223,7 +223,7 @@ function inDenmark(location, country) {
   window.verifyTrackedJob=async function(id){
     const j=careerJobs.find(x=>String(x.id)===String(id));
     if(!j?.job_url)return msg("No job URL available","bad");
-    const response=await db.functions.invoke("verify-job",{body:{url:j.job_url,published_at:j.published_at,deadline:j.deadline}});
+    const response=await db.functions.invoke("verify-job",{body:{url:j.job_url,title:j.title,published_at:j.published_at,deadline:j.deadline}});
     if(response.error||!response.data)return msg(response.error?.message||"Verification failed","bad");
     const d=response.data;
     if(["blocked","error","unverified"].includes(d.status)){msg("Verification inconclusive; job status preserved.","bad");return;}

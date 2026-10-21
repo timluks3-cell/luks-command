@@ -5,3 +5,7 @@ verify_jwt = true
 
 [functions.scan-worker]
 verify_jwt = false
+
+[functions.verify-job]
+verify_jwt = true
+
