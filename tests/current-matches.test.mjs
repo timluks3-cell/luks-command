@@ -31,9 +31,10 @@ test('canonical identity retains distinct vacancy IDs and URL case',()=>{
  assert.notEqual(api.canonicalJobUrl('https://example.test/job?id=1'),api.canonicalJobUrl('https://example.test/job?id=2'));
 });
 test('current matches reject stale, missing, future, closed and expired verification',()=>{
- const now=Date.now();
- assert.equal(api.verifiedCurrent(job(),now),true);
- for(const extra of [{verified_at:null},{verified_at:new Date(now-8*86400000).toISOString()},{verified_at:new Date(now+86400000).toISOString()},{deadline:new Date(now-1).toISOString()},{verification_status:'closed'},{verified_open:false}]) assert.equal(api.verifiedCurrent(job(extra),now),false);
+ const now=Date.parse('2026-10-21T12:00:00Z');
+ const fresh=job({verified_at:new Date(now).toISOString()});
+ assert.equal(api.verifiedCurrent(fresh,now),true);
+ for(const extra of [{verified_at:null},{verified_at:new Date(now-8*86400000).toISOString()},{verified_at:new Date(now+86400000).toISOString()},{deadline:new Date(now-1).toISOString()},{verification_status:'closed'},{verified_open:false}]) assert.equal(api.verifiedCurrent({...fresh,...extra},now),false);
 });
 test('job pagination includes history beyond first page and fails explicitly',async()=>{
  const calls=[];
