@@ -1,7 +1,7 @@
 
 import test from 'node:test';import assert from 'node:assert/strict';import vm from 'node:vm';import {readFileSync} from 'node:fs';
 const context=vm.createContext({URL,Intl,Date});vm.runInContext(readFileSync('workspace-core.js','utf8'),context);const C=context.LuksCore;
-const now=Date.parse('2026-10-22T12:00:00Z'),job={title:'BIM Coordinator',company:'Example',job_url:'https://example.test/job',verified_open:true,verified_at:new Date(now).toISOString()};
+const now=Date.parse('2026-10-22T12:00:00Z'),job={match_score:92,title:'BIM Coordinator',company:'Example',job_url:'https://example.test/job',verified_open:true,verified_at:new Date(now).toISOString()};
 const refs={cv:'Architectural Technologist. Revit and Navisworks. Actual employer and dates only.',example:'Simple Danish example reference.',header:{name:'Sample Candidate'}};
 test('preparation rejects stale, expired and closed vacancies without deleting history',()=>{
  for(const patch of [{deadline:'2020-01-01'},{verification_status:'expired'},{verified_at:'2020-01-01'},{verified_open:false},{status:'closed'},{verification_evidence:'Application deadline has passed'}]){
@@ -20,4 +20,15 @@ test('response import rejects malformed or missing drafts and ignores extra exec
 test('advert links and filenames reject unsafe payloads',()=>{
  for(const url of ['javascript:alert(1)','data:text/html,x','https://user:password@example.test'])assert.equal(C.safeUrl(url),'');
  assert.match(C.safeUrl('https://example.test/job'),/^https:/);assert.doesNotMatch(C.filename({company:'../employer',title:'<x>'},'cv','pdf'),/[<>/\\]/);
+});
+
+test('generation requires strictly above 70 percent, valid numeric scores and a current vacancy',()=>{
+ for(const match_score of [0,69,70,101,null,undefined,'92',NaN,Infinity])assert.equal(C.generationEligibility({...job,match_score},now).allowed,false);
+ for(const match_score of [70.1,71,92,100])assert.equal(C.generationEligibility({...job,match_score},now).allowed,true);
+ for(const patch of [{status:'closed'},{verified_open:false},{deadline:'2020-01-01'}])assert.equal(C.generationEligibility({...job,...patch},now).allowed,false);
+ assert.throws(()=>C.packet({...job,match_score:70},refs,'Advert '.repeat(60),now),/above 70/);
+});
+test('preview readiness requires all three new draft fields, never source references',()=>{
+ assert.equal(C.hasDrafts(refs),false);assert.equal(C.hasDrafts({application:'letter',cv_page1:'first',cv_page2:'second'}),true);
+ for(const cv_page2 of ['',null,undefined])assert.equal(C.hasDrafts({application:'letter',cv_page1:'first',cv_page2}),false);
 });

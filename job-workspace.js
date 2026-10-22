@@ -3,6 +3,8 @@
 'use strict';
 const C=window.LuksCore,esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state=null,refs=null,refsOwner=null,refsRevision=null,previousFocus=null;
+let previewUrls=[],previewVersion=0;
+function clearPreviews(){previewVersion++;for(const url of previewUrls)URL.revokeObjectURL(url);previewUrls=[];}
 const bridge=()=>window.LuksBridge;
 const uid=()=>bridge()?.user()?.id;
 const el=id=>document.getElementById(id);
@@ -12,15 +14,15 @@ const requireState=ticket=>{requireOwner(ticket.owner);if(state!==ticket)throw E
 const field=(id,label,value='',large=false)=>'<label class="workspace-field">'+esc(label)+(large?'<textarea id="'+id+'" class="textarea" rows="9">':'<input id="'+id+'" class="input" value="'+esc(value)+'">')+(large?esc(value)+'</textarea>':'')+'</label>';
 function close(force=false){
  if(!force&&state?.dirty&&!confirm('Close without saving your latest changes?'))return;
- const refresh=!!state?.job;el('luksWorkspace')?.remove();state=null;previousFocus?.focus?.();if(refresh)bridge()?.refresh?.();
+ clearPreviews();const refresh=!!state?.job;el('luksWorkspace')?.remove();state=null;previousFocus?.focus?.();if(refresh)bridge()?.refresh?.();
 }
 function modal(title,body){
- const existing=el('luksWorkspace');if(!existing)previousFocus=document.activeElement;existing?.remove();
+ clearPreviews();const existing=el('luksWorkspace');if(!existing)previousFocus=document.activeElement;existing?.remove();
  const wrap=document.createElement('div');wrap.id='luksWorkspace';wrap.className='overlay workspace-overlay';
  wrap.innerHTML='<section class="modal job-workspace" role="dialog" aria-modal="true" aria-labelledby="workspaceTitle"><header class="workspace-top"><div><div class="kicker">LUKS COMMAND · JOB WORKSPACE</div><h2 id="workspaceTitle">'+esc(title)+'</h2></div><button class="btn" data-work="close">Close</button></header><div id="workspaceMessage" role="status" aria-live="polite"></div>'+body+'</section>';
  document.body.append(wrap);
- wrap.addEventListener('click',async e=>{const b=e.target.closest('[data-work]');if(!b)return;b.disabled=true;try{await action(b.dataset.work);}catch(error){fail(error);}finally{b.disabled=false;}});
- wrap.addEventListener('input',e=>{if(state&&e.target.id!=='workspaceReviewed')state.dirty=true;if(['draftApplication','draftCv1','draftCv2','workspaceAdvert'].includes(e.target.id)&&el('workspaceReviewed'))el('workspaceReviewed').checked=false;});
+ wrap.addEventListener('click',async e=>{const b=e.target.closest('[data-work]');if(!b)return;b.disabled=true;try{await action(b.dataset.work);}catch(error){fail(error);}finally{b.disabled=false;if(b.dataset.work==='generate')updateGenerationButton();}});
+ wrap.addEventListener('input',e=>{if(state&&e.target.id!=='workspaceReviewed')state.dirty=true;if(['draftApplication','draftCv1','draftCv2','workspaceAdvert'].includes(e.target.id)&&el('workspaceReviewed')){el('workspaceReviewed').checked=false;invalidatePreviews();}if(e.target.id==='workspaceReviewed')reviewLabel();});
  wrap.addEventListener('keydown',e=>{
   if(e.key==='Escape'){e.preventDefault();close();}
   if(e.key==='Tab'){
@@ -89,8 +91,23 @@ window.openJobWorkspace=async function(id){
   let references;try{references=await loadRefs();}catch{references={cv:'',example:'',header:{}};}
   requireOwner(owner);
   const j=state.job,d=saved.data?.content||{},proof=C.evidence(j,references.cv,d.advert||j.description),url=C.safeUrl(j.job_url);
-  modal(j.title||'Vacancy','<div class="workspace-jobline"><strong>'+esc(j.company||'Unknown employer')+'</strong><span>'+esc(j.location||'Location unspecified')+'</span><span class="pill" data-vacancy-check>'+(C.current(j)?'Verified current':'Needs vacancy check')+'</span>'+(url?'<a class="btn" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">Original advert ↗</a>':'')+'</div><nav class="workspace-tabs" aria-label="Workspace sections"><a href="#workAdvert">Advert & match</a><a href="#workDrafts">Drafts & downloads</a><a href="#workTracking">Tracking</a></nav><section id="workAdvert"><h3>Advert and match evidence</h3>'+field('workspaceAdvert','Complete advert — paste and review the original text',d.advert||j.description||'',true)+'<div class="workspace-two"><div class="card"><b>Terms also found in your master CV</b><p>'+esc(proof.supported.join(' · ')||'No shared terms identified yet.')+'</p></div><div class="card"><b>Advert terms not found in the master CV</b><p>'+esc(proof.notFound.join(' · ')||'No additional terms identified.')+'</p></div></div><p class="muted">This is a keyword comparison, not an AI assessment. It does not establish experience level or infer missing qualifications. The saved match score is '+esc(j.match_score??'unavailable')+'. Compare the full advert with your CV.</p><div class="row"><button class="btn" data-work="refreshEvidence">Refresh comparison</button><button class="btn" data-work="verify">Verify live vacancy</button><button class="btn" data-work="references">My master documents</button></div></section><section id="workDrafts"><h3>Prepare with your ChatGPT</h3><p class="muted">This version prepares a packet for you to paste into ChatGPT. It does not connect to your subscription or generate automatically inside this website. No packet is sent to OpenAI by LUKS COMMAND.</p><ol class="workspace-steps"><li>Check the full advert and your master documents.</li><li>Copy the packet, open ChatGPT, and paste it there.</li><li>Paste the returned JSON below and review every claim.</li></ol><div class="row"><button class="btn primary" data-work="packet">Copy ChatGPT packet</button><a class="btn" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT ↗</a></div><label class="workspace-field">Packet preview / manual copy<textarea class="textarea" id="workspacePacket" readonly rows="4"></textarea></label>'+field('workspaceResponse','Paste ChatGPT response (JSON)','',true)+'<button class="btn" data-work="importDraft">Load returned drafts</button><div class="workspace-two">'+field('draftApplication','Danish application — one A4 page',d.application||'',true)+'<div>'+field('draftCv1','English CV — page 1',d.cv_page1||'',true)+field('draftCv2','English CV — page 2',d.cv_page2||'',true)+'</div></div><label class="workspace-review"><input type="checkbox" id="workspaceReviewed"> I checked all facts, names, dates and employer details against my master CV and advert.</label><p class="muted">PDF exports enforce 1 application page and 2 CV pages. If text does not fit, shorten it. Word pagination can vary by editor; check it before submitting. Both formats use Arial-compatible typography (embedded Arimo in PDF) and matching headers.</p><div class="row"><button class="btn" data-work="applicationPdf">Application PDF</button><button class="btn" data-work="applicationWord">Application Word</button><button class="btn" data-work="cvPdf">CV PDF</button><button class="btn" data-work="cvWord">CV Word</button></div></section><section id="workTracking"><h3>Tracking and private notes</h3><div class="workspace-two"><label class="workspace-field">Job stage<select class="select" id="workspaceStage">'+['discovered','saved','ready','applied','interview','offer','rejected','closed'].map(s=>'<option value="'+s+'"'+(s===j.status?' selected':'')+'>'+s+'</option>').join('')+'</select></label>'+field('workspaceFollowup','Personal follow-up date',d.follow_up||'','')+'</div>'+field('workspaceNotes','Private workspace notes',d.notes||'',true)+'<div class="row"><button class="btn" data-work="stage">Update job stage</button><button class="btn primary" data-work="save">Save drafts and notes</button></div><p class="muted">Drafts and follow-up dates do not mark a job as applied. Your existing applications remain intact. Nothing is sent to employers.</p></section>');
+  const eligibility=C.generationEligibility(j);
+  modal(j.title||'Vacancy',`
+   <div class="workspace-jobline"><strong>${esc(j.company||'Unknown employer')}</strong><span>${esc(j.location||'Location unspecified')}</span><span class="pill" data-vacancy-check>${C.current(j)?'Verified current':'Needs vacancy check'}</span>${url?'<a class="btn" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">Original advert ↗</a>':''}</div>
+   <nav class="workspace-tabs" aria-label="Workspace sections"><a href="#workDrafts">Application & CV</a><a href="#workAdvert">Advert & match</a><a href="#workTracking">Tracking</a></nav>
+   <section id="workDrafts">
+    <div class="workspace-document-heading"><div><h3>Your tailored application and CV</h3><p class="muted">For ${esc(j.title)} at ${esc(j.company)} · ${esc(j.match_score??'Unknown')}% saved match</p></div><button class="btn primary" data-work="generate"${eligibility.allowed?'':' disabled'}>Generate application and CV</button></div>
+    <p class="muted" id="generationEligibility">${eligibility.allowed?'Uses your ChatGPT through copy/paste. Your master documents are private references, not the finished documents.':esc(eligibility.reason)}</p>
+    <div id="workspaceDocumentPreviews" aria-live="polite"><div class="workspace-document-empty"><strong>No tailored documents for this vacancy yet</strong><p>Select Generate application and CV, paste the packet into ChatGPT, then load its response here.</p></div></div>
+    <div class="row"><button class="btn" data-work="preview">Refresh document previews</button><span class="muted" id="workspaceReviewStatus">Not reviewed for sending</span></div>
+    <details id="workspaceHandoff" class="workspace-handoff"><summary>ChatGPT generation — copy packet and load response</summary><p class="muted">Generation happens in your ChatGPT. LUKS COMMAND does not send the packet or call an AI API.</p><ol class="workspace-steps"><li>Check the full advert and your master documents.</li><li>Copy the packet, open ChatGPT, and paste it there.</li><li>Paste the returned JSON below. Load it to preview your new documents.</li></ol><div class="row"><button class="btn" data-work="packet">Copy ChatGPT packet</button><a class="btn" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT ↗</a></div><label class="workspace-field">Packet preview / manual copy<textarea class="textarea" id="workspacePacket" readonly rows="4"></textarea></label>${field('workspaceResponse','Paste ChatGPT response (JSON)','',true)}<button class="btn primary" data-work="importDraft">Load tailored application and CV</button></details>
+    <details class="workspace-draft-editor"><summary>Edit tailored document text</summary><div class="workspace-two">${field('draftApplication','Danish application — one A4 page',d.application||'',true)}<div>${field('draftCv1','English CV — page 1',d.cv_page1||'',true)}${field('draftCv2','English CV — page 2',d.cv_page2||'',true)}</div></div></details>
+    <label class="workspace-review"><input type="checkbox" id="workspaceReviewed"> I checked all facts, names, dates and employer details against my master CV and advert.</label><p class="muted">PDF previews and downloads use the same layout: one application page and two CV pages. Shorten any text that does not fit. Check Word pagination in your editor before sending.</p><div class="row"><button class="btn" data-work="applicationPdf">Application PDF</button><button class="btn" data-work="applicationWord">Application Word</button><button class="btn" data-work="cvPdf">CV PDF</button><button class="btn" data-work="cvWord">CV Word</button><button class="btn primary" data-work="save">Save drafts and notes</button></div>
+   </section>
+   <section id="workAdvert"><h3>Advert and match evidence</h3>${field('workspaceAdvert','Complete advert — paste and review the original text',d.advert||j.description||'',true)}<div class="workspace-two"><div class="card"><b>Terms also found in your master CV</b><p>${esc(proof.supported.join(' · ')||'No shared terms identified yet.')}</p></div><div class="card"><b>Advert terms not found in the master CV</b><p>${esc(proof.notFound.join(' · ')||'No additional terms identified.')}</p></div></div><p class="muted">This is a keyword comparison, not an AI assessment. It does not establish experience level or infer missing qualifications. Compare the full advert with your CV.</p><div class="row"><button class="btn" data-work="refreshEvidence">Refresh comparison</button><button class="btn" data-work="verify">Verify live vacancy</button><button class="btn" data-work="references">My master documents</button></div></section>
+   <section id="workTracking"><h3>Tracking and private notes</h3><div class="workspace-two"><label class="workspace-field">Job stage<select class="select" id="workspaceStage">${['discovered','saved','ready','applied','interview','offer','rejected','closed'].map(s=>'<option value="'+s+'"'+(s===j.status?' selected':'')+'>'+s+'</option>').join('')}</select></label>${field('workspaceFollowup','Personal follow-up date',d.follow_up||'','')}</div>${field('workspaceNotes','Private workspace notes',d.notes||'',true)}<div class="row"><button class="btn" data-work="stage">Update job stage</button><button class="btn" data-work="save">Save tracking notes</button></div><p class="muted">Drafts and follow-up dates do not mark a job as applied. Nothing is sent to employers.</p></section>`);
   el('workspaceFollowup').type='date';
+  if(C.hasDrafts(d))await renderPreviews(state);
  }catch(error){fail(error);}
 };
 function download(data,name,type){
@@ -123,6 +140,29 @@ async function pdfBytes(kind,draft,header,providedFonts){
   page.drawText((header.name||'')+' | '+(n+1),{x:54,y:35,size:8,font,color:rgb(.4,.45,.5)});
  }
  return pdf.save();
+}
+function updateGenerationButton(){
+ if(!state?.job)return;const eligibility=C.generationEligibility(state.job),button=el('luksWorkspace')?.querySelector('[data-work="generate"]');
+ if(button)button.disabled=!eligibility.allowed;if(el('generationEligibility'))el('generationEligibility').textContent=eligibility.allowed?'Uses your ChatGPT through copy/paste. Your master documents stay private references.':eligibility.reason;
+}
+function reviewLabel(){if(el('workspaceReviewStatus'))el('workspaceReviewStatus').textContent=el('workspaceReviewed')?.checked?'Reviewed — download and check before sending':'Not reviewed for sending';}
+function invalidatePreviews(){
+ clearPreviews();reviewLabel();
+ const target=el('workspaceDocumentPreviews');if(target)target.innerHTML='<div class="workspace-document-empty"><strong>Document text changed</strong><p>Refresh the previews to check the latest layout. Your edits are kept below.</p></div>';
+}
+async function renderPreviews(ticket){
+ requireState(ticket);const target=el('workspaceDocumentPreviews');if(!target)return;
+ clearPreviews();const version=previewVersion;
+ try{
+  const draft=C.cleanDraft(capture()),r=await loadRefs();requireState(ticket);
+  const h=r.header||{};if(!h.name||!h.contacts||!h.titleDa||!h.titleEn)throw Error('Complete your shared header in My master documents first.');
+  if(version!==previewVersion)return;
+  target.innerHTML='<p class="muted">Preparing your tailored document previews…</p>';
+  const files=await Promise.all(['application','cv'].map(kind=>pdfBytes(kind,draft,h)));requireState(ticket);if(version!==previewVersion)return;
+  previewUrls=files.map(bytes=>URL.createObjectURL(new Blob([bytes],{type:'application/pdf'})));
+  target.innerHTML='<div class="workspace-preview-grid">'+['Danish application — 1 page','English CV — 2 pages'].map((label,i)=>'<article class="workspace-document-card"><h4>'+label+'</h4><iframe title="'+label+' preview" src="'+previewUrls[i]+'#toolbar=0&navpanes=0&view=FitH"></iframe><p class="muted">Tailored draft for '+esc(ticket.job.company)+'. Review every claim before sending.</p></article>').join('')+'</div>';
+  reviewLabel();
+ }catch(error){if(state!==ticket||version!==previewVersion)return;target.innerHTML='<div class="workspace-document-empty"><strong>Preview needs attention</strong><p>'+esc(error.message||String(error))+'</p><p>Open Edit tailored document text to correct the draft, then refresh previews.</p></div>';}
 }
 async function exportFile(kind,word){
  const ticket=state,job=state.job;requireState(ticket);if(!el('workspaceReviewed').checked)throw Error('Check the factual review box before exporting.');
@@ -159,14 +199,16 @@ async function action(name){
   const data=capture();if(data.follow_up&&!/^\d{4}-\d{2}-\d{2}$/.test(data.follow_up))throw Error('Use a valid follow-up date.');
   const revision=await saveRow('job_workspaces',{job_id:ticket.job.id},data,ticket.revision);requireState(ticket);state.revision=revision;state.dirty=false;el('workspaceMessage').textContent='Drafts and notes saved to your private account.';return;
  }
- if(name==='packet'){
+ if(name==='preview'){await renderPreviews(ticket);return;}
+ if(name==='packet'||name==='generate'){
+  el('workspaceHandoff').open=true;
   const r=await loadRefs();requireState(ticket);if(!bridge().denmarkJob(ticket.job))throw Error('Only Denmark vacancies can be prepared here.');const text=C.packet(ticket.job,r,el('workspaceAdvert').value);
   el('workspacePacket').value=text;
-  try{await navigator.clipboard.writeText(text);el('workspaceMessage').textContent='Packet copied. Paste it into ChatGPT yourself.';}catch{el('workspaceMessage').textContent='Select and copy the packet preview manually.';}
+  try{await navigator.clipboard.writeText(text);el('workspaceMessage').textContent='Packet copied. Paste it into ChatGPT, then load the returned JSON to create your tailored previews.';}catch{el('workspaceMessage').textContent='Select and copy the packet preview manually.';}
   return;
  }
  if(name==='importDraft'){
-  const d=C.cleanDraft(el('workspaceResponse').value);el('draftApplication').value=d.application;el('draftCv1').value=d.cv_page1;el('draftCv2').value=d.cv_page2;el('workspaceReviewed').checked=false;state.dirty=true;el('workspaceMessage').textContent='Drafts loaded. Review every factual claim before exporting.';return;
+  const d=C.cleanDraft(el('workspaceResponse').value);el('draftApplication').value=d.application;el('draftCv1').value=d.cv_page1;el('draftCv2').value=d.cv_page2;el('workspaceReviewed').checked=false;state.dirty=true;el('workspaceHandoff').open=false;el('workspaceMessage').textContent='New tailored drafts loaded for this vacancy. Review the previews and every factual claim before sending.';await renderPreviews(ticket);return;
  }
  if(name==='refreshEvidence'){
   const r=await loadRefs();requireState(ticket);const p=C.evidence(ticket.job,r.cv,el('workspaceAdvert').value);el('workspaceMessage').textContent='Shared terms: '+(p.supported.join(', ')||'none')+'. Not found in master CV: '+(p.notFound.join(', ')||'none')+'.';return;
@@ -176,12 +218,12 @@ async function action(name){
   const r=await bridge().db.functions.invoke('verify-job',{body:{url:job.job_url,title:job.title,deadline:job.deadline}});requireOwner(owner);
   if(r.error)throw r.error;if(!r.data?.conclusive)throw Error(r.data?.reason||'Verification was inconclusive. Existing job state preserved.');
   const patch={verified_open:!!r.data.verified_open,verification_status:r.data.status,verified_at:r.data.verified_at||new Date().toISOString(),verification_evidence:r.data.reason||''};
-  const q=await bridge().db.from('jobs').update(patch).eq('user_id',owner).eq('id',job.id);requireState(ticket);if(q.error)throw q.error;Object.assign(job,patch);
+  const q=await bridge().db.from('jobs').update(patch).eq('user_id',owner).eq('id',job.id);requireState(ticket);if(q.error)throw q.error;Object.assign(job,patch);updateGenerationButton();
   const badge=el('luksWorkspace').querySelector('[data-vacancy-check]');if(badge)badge.textContent=C.current(job)?'Verified current':'Needs vacancy check';el('workspaceMessage').textContent=r.data.reason;return;
  }
  if(name==='stage'){
   const value=el('workspaceStage').value;if(!['discovered','saved','ready','applied','interview','offer','rejected','closed'].includes(value))throw Error('Invalid stage.');
-  const r=await bridge().db.from('jobs').update({status:value,updated_at:new Date().toISOString()}).eq('id',state.job.id).eq('user_id',state.owner);requireState(ticket);if(r.error)throw r.error;state.job.status=value;el('workspaceMessage').textContent='Job stage updated. Application records were preserved.';return;
+  const r=await bridge().db.from('jobs').update({status:value,updated_at:new Date().toISOString()}).eq('id',state.job.id).eq('user_id',state.owner);requireState(ticket);if(r.error)throw r.error;state.job.status=value;updateGenerationButton();el('workspaceMessage').textContent='Job stage updated. Application records were preserved.';return;
  }
  if(name==='applicationPdf'||name==='applicationWord'||name==='cvPdf'||name==='cvWord'){await exportFile(name.startsWith('cv')?'cv':'application',name.endsWith('Word'));return;}
 }
