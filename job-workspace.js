@@ -148,7 +148,7 @@ function updateGenerationButton(){
 function reviewLabel(){if(el('workspaceReviewStatus'))el('workspaceReviewStatus').textContent=el('workspaceReviewed')?.checked?'Reviewed — download and check before sending':'Not reviewed for sending';}
 function invalidatePreviews(){
  clearPreviews();reviewLabel();
- const target=el('workspaceDocumentPreviews');if(target)target.innerHTML='<div class="workspace-document-empty"><strong>Document text changed</strong><p>Refresh the previews to check the latest layout. Your edits are kept below.</p></div>';
+ const target=el('workspaceDocumentPreviews');if(target&&!C.hasDrafts(capture())){target.innerHTML='<div class="workspace-document-empty"><strong>No tailored documents for this vacancy yet</strong><p>Paste the prepared packet into ChatGPT, then load its response here.</p></div>';return;}if(target)target.innerHTML='<div class="workspace-document-empty"><strong>Document text changed</strong><p>Refresh the previews to check the latest layout. Your edits are kept below.</p></div>';
 }
 async function renderPreviews(ticket){
  requireState(ticket);const target=el('workspaceDocumentPreviews');if(!target)return;
@@ -216,7 +216,7 @@ async function action(name){
   requireState(ticket);el('workspaceHandoff').open=true;
   const r=await loadRefs();requireState(ticket);if(!bridge().denmarkJob(ticket.job))throw Error('Only Denmark vacancies can be prepared here.');const text=C.packet(ticket.job,r,el('workspaceAdvert').value);
   el('workspacePacket').value=text;
-  try{await navigator.clipboard.writeText(text);el('workspaceMessage').textContent='Packet copied. Paste it into ChatGPT, then load the returned JSON to create your tailored previews.';}catch{el('workspaceMessage').textContent='Select and copy the packet preview manually.';}
+  let timer;try{await Promise.race([navigator.clipboard.writeText(text),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Clipboard unavailable')),900);})]);requireState(ticket);el('workspaceMessage').textContent='Packet copied. Paste it into ChatGPT, then load the returned JSON to create your tailored previews.';}catch{if(state===ticket)el('workspaceMessage').textContent='Full advert and packet are ready. Click Copy ChatGPT packet, or select and copy the packet preview.';}finally{clearTimeout(timer);}
   return;
  }
  if(name==='importDraft'){
