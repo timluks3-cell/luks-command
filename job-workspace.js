@@ -26,7 +26,7 @@ function modal(title,body){
  wrap.addEventListener('keydown',e=>{
   if(e.key==='Escape'){e.preventDefault();close();}
   if(e.key==='Tab'){
-   const f=[...wrap.querySelectorAll('button,input,textarea,select,a[href]')].filter(x=>!x.disabled&&x.getClientRects().length);
+   const f=[...wrap.querySelectorAll('button,input,textarea,select,a[href],iframe')].filter(x=>!x.disabled&&x.getClientRects().length);
    if(e.shiftKey&&document.activeElement===f[0]){e.preventDefault();f.at(-1)?.focus();}
    else if(!e.shiftKey&&document.activeElement===f.at(-1)){e.preventDefault();f[0]?.focus();}
   }
@@ -199,7 +199,7 @@ async function action(name){
   const data=capture();if(data.follow_up&&!/^\d{4}-\d{2}-\d{2}$/.test(data.follow_up))throw Error('Use a valid follow-up date.');
   const revision=await saveRow('job_workspaces',{job_id:ticket.job.id},data,ticket.revision);requireState(ticket);state.revision=revision;state.dirty=false;el('workspaceMessage').textContent='Drafts and notes saved to your private account.';return;
  }
- if(name==='preview'){await renderPreviews(ticket);return;}
+ if(name==='preview'){await renderPreviews(ticket);if(state===ticket)el('workDrafts').scrollIntoView({block:'start',behavior:'smooth'});return;}
  if(name==='packet'||name==='generate'){
   el('workspaceHandoff').open=true;
   const r=await loadRefs();requireState(ticket);if(!bridge().denmarkJob(ticket.job))throw Error('Only Denmark vacancies can be prepared here.');const text=C.packet(ticket.job,r,el('workspaceAdvert').value);
@@ -208,7 +208,7 @@ async function action(name){
   return;
  }
  if(name==='importDraft'){
-  const d=C.cleanDraft(el('workspaceResponse').value);el('draftApplication').value=d.application;el('draftCv1').value=d.cv_page1;el('draftCv2').value=d.cv_page2;el('workspaceReviewed').checked=false;state.dirty=true;el('workspaceHandoff').open=false;el('workspaceMessage').textContent='New tailored drafts loaded for this vacancy. Review the previews and every factual claim before sending.';await renderPreviews(ticket);return;
+  const d=C.cleanDraft(el('workspaceResponse').value);el('draftApplication').value=d.application;el('draftCv1').value=d.cv_page1;el('draftCv2').value=d.cv_page2;el('workspaceReviewed').checked=false;state.dirty=true;el('workspaceHandoff').open=false;el('workspaceMessage').textContent='New tailored drafts loaded for this vacancy. Review the previews and every factual claim before sending.';await renderPreviews(ticket);if(state===ticket)el('workDrafts').scrollIntoView({block:'start',behavior:'smooth'});return;
  }
  if(name==='refreshEvidence'){
   const r=await loadRefs();requireState(ticket);const p=C.evidence(ticket.job,r.cv,el('workspaceAdvert').value);el('workspaceMessage').textContent='Shared terms: '+(p.supported.join(', ')||'none')+'. Not found in master CV: '+(p.notFound.join(', ')||'none')+'.';return;
