@@ -104,7 +104,7 @@ window.openJobWorkspace=async function(id){
     <details class="workspace-draft-editor"><summary>Edit tailored document text</summary><div class="workspace-two">${field('draftApplication','Danish application — one A4 page',d.application||'',true)}<div>${field('draftCv1','English CV — page 1',d.cv_page1||'',true)}${field('draftCv2','English CV — page 2',d.cv_page2||'',true)}</div></div></details>
     <label class="workspace-review"><input type="checkbox" id="workspaceReviewed"> I checked all facts, names, dates and employer details against my master CV and advert.</label><p class="muted">PDF previews and downloads use the same layout: one application page and two CV pages. Shorten any text that does not fit. Check Word pagination in your editor before sending.</p><div class="row"><button class="btn" data-work="applicationPdf">Application PDF</button><button class="btn" data-work="applicationWord">Application Word</button><button class="btn" data-work="cvPdf">CV PDF</button><button class="btn" data-work="cvWord">CV Word</button><button class="btn primary" data-work="save">Save drafts and notes</button></div>
    </section>
-   <section id="workAdvert"><h3>Advert and match evidence</h3>${field('workspaceAdvert','Complete advert — paste and review the original text',d.advert||j.description||'',true)}<div class="workspace-two"><div class="card"><b>Terms also found in your master CV</b><p>${esc(proof.supported.join(' · ')||'No shared terms identified yet.')}</p></div><div class="card"><b>Advert terms not found in the master CV</b><p>${esc(proof.notFound.join(' · ')||'No additional terms identified.')}</p></div></div><p class="muted">This is a keyword comparison, not an AI assessment. It does not establish experience level or infer missing qualifications. Compare the full advert with your CV.</p><div class="row"><button class="btn" data-work="refreshEvidence">Refresh comparison</button><button class="btn" data-work="verify">Verify live vacancy</button><button class="btn" data-work="references">My master documents</button></div></section>
+   <section id="workAdvert"><h3>Advert and match evidence</h3>${field('workspaceAdvert','Complete advert — paste and review the original text',d.advert||j.description||'',true)}<div class="workspace-two"><div class="card"><b>Terms also found in your master CV</b><p>${esc(proof.supported.join(' · ')||'No shared terms identified yet.')}</p></div><div class="card"><b>Advert terms not found in the master CV</b><p>${esc(proof.notFound.join(' · ')||'No additional terms identified.')}</p></div></div><p class="muted">This is a keyword comparison, not an AI assessment. It does not establish experience level or infer missing qualifications. Compare the full advert with your CV.</p><div class="row"><button class="btn" data-work="fetchAdvert">Fetch full advert</button><button class="btn" data-work="refreshEvidence">Refresh comparison</button><button class="btn" data-work="verify">Verify live vacancy</button><button class="btn" data-work="references">My master documents</button></div></section>
    <section id="workTracking"><h3>Tracking and private notes</h3><div class="workspace-two"><label class="workspace-field">Job stage<select class="select" id="workspaceStage">${['discovered','saved','ready','applied','interview','offer','rejected','closed'].map(s=>'<option value="'+s+'"'+(s===j.status?' selected':'')+'>'+s+'</option>').join('')}</select></label>${field('workspaceFollowup','Personal follow-up date',d.follow_up||'','')}</div>${field('workspaceNotes','Private workspace notes',d.notes||'',true)}<div class="row"><button class="btn" data-work="stage">Update job stage</button><button class="btn" data-work="save">Save tracking notes</button></div><p class="muted">Drafts and follow-up dates do not mark a job as applied. Nothing is sent to employers.</p></section>`);
   el('workspaceFollowup').type='date';
   if(C.hasDrafts(d))await renderPreviews(state);
@@ -148,7 +148,7 @@ function updateGenerationButton(){
 function reviewLabel(){if(el('workspaceReviewStatus'))el('workspaceReviewStatus').textContent=el('workspaceReviewed')?.checked?'Reviewed — download and check before sending':'Not reviewed for sending';}
 function invalidatePreviews(){
  clearPreviews();reviewLabel();
- const target=el('workspaceDocumentPreviews');if(target)target.innerHTML='<div class="workspace-document-empty"><strong>Document text changed</strong><p>Refresh the previews to check the latest layout. Your edits are kept below.</p></div>';
+ const target=el('workspaceDocumentPreviews');if(target&&!C.hasDrafts(capture())){target.innerHTML='<div class="workspace-document-empty"><strong>No tailored documents for this vacancy yet</strong><p>Paste the prepared packet into ChatGPT, then load its response here.</p></div>';return;}if(target)target.innerHTML='<div class="workspace-document-empty"><strong>Document text changed</strong><p>Refresh the previews to check the latest layout. Your edits are kept below.</p></div>';
 }
 async function renderPreviews(ticket){
  requireState(ticket);const target=el('workspaceDocumentPreviews');if(!target)return;
@@ -185,6 +185,16 @@ async function wordBlob(kind,draft,h,api){
  return D.Packer.toBlob(doc);
 }
 
+async function fetchFullAdvert(ticket){
+ requireState(ticket);if(!bridge().denmarkJob(ticket.job))throw Error('Only Denmark vacancies can be prepared here.');
+ const field=el('workspaceAdvert'),before=field.value;el('workspaceMessage').textContent='Fetching the full advert from the employer…';
+ const r=await bridge().db.functions.invoke('job-advert',{body:{job_id:ticket.job.id}});requireState(ticket);
+ if(r.error){let message='Automatic advert retrieval failed. Open the original advert and paste its full text.';try{const detail=await r.error.context?.json();requireState(ticket);if(detail?.error)message=detail.error;}catch{}throw Error(message);}
+ if(typeof r.data?.text!=='string'||r.data.text.trim().length<500)throw Error(r.data?.error||'The full advert could not be extracted reliably. Open the original advert and paste its text.');
+ if(field.value!==before)throw Error('The advert changed while fetching. Your edits were kept. Click Fetch full advert again if you want to replace them.');
+ field.value=r.data.text;ticket.dirty=true;el('workspaceReviewed').checked=false;invalidatePreviews();
+ el('workspaceMessage').textContent='Full employer advert loaded. Preparing your document workflow…';
+}
 async function action(name){
  if(name==='close'){close();return;}if(!state)return;const ticket=state;requireState(ticket);
  if(name==='references'){await window.openMasterDocuments();return;}
@@ -199,12 +209,14 @@ async function action(name){
   const data=capture();if(data.follow_up&&!/^\d{4}-\d{2}-\d{2}$/.test(data.follow_up))throw Error('Use a valid follow-up date.');
   const revision=await saveRow('job_workspaces',{job_id:ticket.job.id},data,ticket.revision);requireState(ticket);state.revision=revision;state.dirty=false;el('workspaceMessage').textContent='Drafts and notes saved to your private account.';return;
  }
+ if(name==='fetchAdvert'){await fetchFullAdvert(ticket);el('workspaceMessage').textContent='Full employer advert loaded. Review it before preparing your application.';return;}
  if(name==='preview'){await renderPreviews(ticket);if(state===ticket)el('workDrafts').scrollIntoView({block:'start',behavior:'smooth'});return;}
  if(name==='packet'||name==='generate'){
-  el('workspaceHandoff').open=true;
+  if(el('workspaceAdvert').value.trim().length<500)await fetchFullAdvert(ticket);
+  requireState(ticket);el('workspaceHandoff').open=true;
   const r=await loadRefs();requireState(ticket);if(!bridge().denmarkJob(ticket.job))throw Error('Only Denmark vacancies can be prepared here.');const text=C.packet(ticket.job,r,el('workspaceAdvert').value);
   el('workspacePacket').value=text;
-  try{await navigator.clipboard.writeText(text);el('workspaceMessage').textContent='Packet copied. Paste it into ChatGPT, then load the returned JSON to create your tailored previews.';}catch{el('workspaceMessage').textContent='Select and copy the packet preview manually.';}
+  let timer;try{await Promise.race([navigator.clipboard.writeText(text),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Clipboard unavailable')),900);})]);requireState(ticket);el('workspaceMessage').textContent='Packet copied. Paste it into ChatGPT, then load the returned JSON to create your tailored previews.';}catch{if(state===ticket)el('workspaceMessage').textContent='Full advert and packet are ready. Click Copy ChatGPT packet, or select and copy the packet preview.';}finally{clearTimeout(timer);}
   return;
  }
  if(name==='importDraft'){
