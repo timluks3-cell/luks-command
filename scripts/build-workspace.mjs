@@ -1,7 +1,7 @@
 
 import {mkdir,writeFile,copyFile,readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-const deps=[
+const deps=[["fontkit.umd.min.js","https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"],["Arimo-Regular.woff","https://cdn.jsdelivr.net/npm/@fontsource/arimo@5.3.0/files/arimo-latin-400-normal.woff"],["Arimo-Bold.woff","https://cdn.jsdelivr.net/npm/@fontsource/arimo@5.3.0/files/arimo-latin-700-normal.woff"],["fontkit-LICENSE.txt","https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/README.md"],["Arimo-LICENSE.txt","https://cdn.jsdelivr.net/npm/@fontsource/arimo@5.3.0/LICENSE"],
  ['pdf-lib.min.js','https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js'],
  ['docx.umd.js','https://cdn.jsdelivr.net/npm/docx@9.5.1/dist/index.umd.cjs'],
  ['pdf.mjs','https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.296/build/pdf.mjs'],
@@ -17,7 +17,7 @@ let lock={};try{lock=JSON.parse(await readFile('vendor-lock.json','utf8'));}catc
 for(const [file,url] of deps){
  const r=await fetch(url,{signal:AbortSignal.timeout(30000)});if(!r.ok)throw Error(url+' returned '+r.status);
  const data=Buffer.from(await r.arrayBuffer());if(data.length>8000000)throw Error('Vendor exceeds size budget');
- const sha=createHash('sha256').update(data).digest('hex');if(lock[file]&&sha!==lock[file])throw Error('Vendor integrity mismatch: '+file);
+ const sha=createHash('sha256').update(data).digest('hex');if(!lock[file]||sha!==lock[file])throw Error('Vendor integrity mismatch: '+file);
  hashes[file]=sha;await writeFile('dist/vendor/'+file,data);
 }
 await writeFile('dist/vendor/manifest.json',JSON.stringify(hashes,null,2));

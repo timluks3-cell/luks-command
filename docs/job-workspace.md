@@ -6,7 +6,7 @@ The first release uses a manual ChatGPT handoff, not subscription automation. Th
 
 Master CV text, example-letter text and shared header details live in job_application_references. Original PDFs are not stored: PDF text extraction happens locally with an included PDF.js worker. Drafts, editable advert text, personal follow-up date and workspace notes live in job_workspaces. RLS restricts both tables to their owner; a composite foreign key prevents attaching a workspace to somebody else's job. Revision checks reject lost updates across tabs. No personal reference text or source PDF belongs in GitHub, preview samples or browser localStorage.
 
-PDF exports enforce one A4 application page and two CV pages, refuse overflow and use Helvetica with navy/teal headers. Real DOCX files use matching Arial typography and two CV sections. Word pagination must be checked in the target editor. Review confirmation is required before export. The Danish application / English CV requirement overrides the skill's usual advert-language choice. This version does not automatically verify factual claims or run a live LLM.
+PDF exports enforce one A4 application page and two CV pages, refuse overflow and use embedded Arimo (Arial-compatible) fonts with navy/teal headers. Real DOCX files use matching Arial typography and two CV sections. Word pagination must be checked in the target editor. Review confirmation is required before export. The Danish application / English CV requirement overrides the skill's usual advert-language choice. This version does not automatically verify factual claims or run a live LLM.
 
 ## Release
 
