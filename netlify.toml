@@ -1,5 +1,5 @@
 [build]
-  command = "mkdir -p dist && cp index.html scanner.js job-role-categories.js theme.css dist/ && node scripts/build-display-preview.mjs"
+  command = "node scripts/build-workspace.mjs && node scripts/build-display-preview.mjs"
   publish = "dist"
 
 [[headers]]
