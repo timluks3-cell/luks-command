@@ -17,3 +17,9 @@ PDF exports enforce one A4 application page and two CV pages, refuse overflow an
 5. Verify one real job loads for its owner, save/reopen a draft, check optimistic conflict handling and export a reviewed package. No Supabase Edge Function deployment is required.
 
 CI builds pinned vendor bundles, runs the existing scanner regressions, exercises packet/expiry/evidence/parser rules, verifies real PDF/DOCX exports, and tests ownership/isolation/concurrency in a separate PostgreSQL container. Pending private reference import and live signed-in smoke testing must be reported rather than claimed complete.
+
+## Tailored-document display
+
+Every verified-current vacancy with a numeric saved match strictly above 70% offers Generate application and CV in its workspace. This prepares the ChatGPT packet; the user still pastes it into ChatGPT and loads the returned JSON. No API integration or automatic in-app generation is implied. Unknown scores, 70% and below, expired, closed and stale vacancies cannot prepare a new packet. Server/browser Denmark and applied-history rules are unchanged.
+
+The default workspace shows only vacancy-specific tailored documents. Master sources remain in My master documents. Imported or saved application/cv_page1/cv_page2 fields render as actual PDF previews using the exact export renderer and its one-/two-page overflow checks. Empty workspaces explain the three manual steps. Text edits invalidate previews and factual review; refreshing rebuilds them. Blob URLs are revoked on edits, replacement, account changes and close; late renders cannot replace a newer workspace. No schema or Edge Function change is required.

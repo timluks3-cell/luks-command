@@ -24,8 +24,15 @@ function cleanDraft(raw){
  }
  return out;
 }
+function generationEligibility(job,now=Date.now()){
+ const score=job.match_score;
+ if(typeof score!=='number'||!Number.isFinite(score)||score<=70||score>100)return {allowed:false,reason:'Generation is available for vacancies with a saved match above 70%.'};
+ if(!current(job,now))return {allowed:false,reason:'Verify this vacancy as current before preparing an application.'};
+ return {allowed:true,reason:''};
+}
+function hasDrafts(value){return ['application','cv_page1','cv_page2'].every(k=>typeof value?.[k]==='string'&&value[k].trim());}
 function packet(job,refs,advert,now=Date.now()){
- if(!current(job,now))throw Error('Verify this vacancy as current before preparing an application.');
+ const eligibility=generationEligibility(job,now);if(!eligibility.allowed)throw Error(eligibility.reason);
  if(!refs.cv?.trim()||!refs.example?.trim())throw Error('Save both master documents first.');
  if(!advert||advert.trim().length<200)throw Error('Paste the complete job advert (at least 200 characters), not a listing or teaser.');
  const payload={vacancy:{title:job.title,company:job.company,location:job.location,url:safeUrl(job.job_url),advert},master_cv:refs.cv,example_application:refs.example,header:refs.header||{}};
@@ -59,5 +66,5 @@ function filename(job,kind,ext){
  const part=s=>String(s||'Job').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^\p{L}\p{N}]+/gu,'_').slice(0,65);
  return 'Application_Package_'+part(job.company)+'_'+part(job.title)+'_'+kind+'.'+ext;
 }
-root.LuksCore={current,evidence,cleanDraft,packet,lines,filename,safeUrl};
+root.LuksCore={generationEligibility,hasDrafts,current,evidence,cleanDraft,packet,lines,filename,safeUrl};
 })(typeof globalThis!=='undefined'?globalThis:window);
