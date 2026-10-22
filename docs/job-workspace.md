@@ -23,3 +23,13 @@ CI builds pinned vendor bundles, runs the existing scanner regressions, exercise
 Every verified-current vacancy with a numeric saved match strictly above 70% offers Generate application and CV in its workspace. This prepares the ChatGPT packet; the user still pastes it into ChatGPT and loads the returned JSON. No API integration or automatic in-app generation is implied. Unknown scores, 70% and below, expired, closed and stale vacancies cannot prepare a new packet. Server/browser Denmark and applied-history rules are unchanged.
 
 The default workspace shows only vacancy-specific tailored documents. Master sources remain in My master documents. Imported or saved application/cv_page1/cv_page2 fields render as actual PDF previews using the exact export renderer and its one-/two-page overflow checks. Empty workspaces explain the three manual steps. Text edits invalidate previews and factual review; refreshing rebuilds them. Blob URLs are revoked on edits, replacement, account changes and close; late renders cannot replace a newer workspace. No schema or Edge Function change is required.
+
+## Automatic advert retrieval
+
+Generate application and CV retrieves the employer's full advert through the authenticated job-advert Edge Function when the workspace contains less than 500 characters. Fetch full advert can also be selected explicitly. The endpoint accepts an owned saved job ID rather than a free URL, checks the caller with Supabase Auth, reads the job using the caller's JWT/RLS, and requires a current Denmark-only vacancy above 70%. It does not upload the CV or call an AI provider.
+
+Retrieval validates each redirect destination and resolved addresses, bounds page size/time, rejects closed/expired/ambiguous/unrelated pages, and extracts a single JobPosting description or recognised advert content container. JavaScript-only or access-restricted sites may still require manual text. Existing edits made during retrieval are kept. No saved drafts or master references are overwritten.
+
+Deploy supabase/functions/job-advert/index.ts with gateway JWT verification enabled before the frontend. No new secrets or schema migration are required. Browser sample retrieval is simulated with fictional data and has no production connection.
+
+This automates the missing-advert step. Draft writing still uses the user's chosen ChatGPT copy/paste workflow. Fully automatic in-app writing requires a configured AI API or approval for hosted Sign in with ChatGPT; neither is silently enabled.
