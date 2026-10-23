@@ -331,8 +331,10 @@ function inDenmark(location, country) {
     const current=vacancyRows(jobs).filter(currentUnapplied),diagnostics=Array.isArray(last?.metadata?.diagnostics)?last.metadata.diagnostics:[];
     const start=Date.parse(last?.started_at||''),end=Date.parse(last?.finished_at||last?.completed_at||'')||Date.now();
     const inRun=d=>{const t=Date.parse(d.verified_at||d.created_at||'');return Number.isFinite(start)&&Number.isFinite(t)&&t>=start&&t<=end;};
-    const recent=discoveries.filter(inRun),available=recent.filter(d=>denmarkJob(d)&&!unavailableVacancy(d));
-    const newImports=current.filter(j=>{const t=Date.parse(j.created_at||'');return Number.isFinite(start)&&t>=start&&t<=end;});
+    const recent=discoveries.filter(inRun),historyUrls=new Set(jobs.filter(historicalJob).map(j=>canonicalJobUrl(j.job_url)));
+    const available=recent.filter(d=>denmarkJob(d)&&!unavailableVacancy(d)&&!historicalJob(d)&&!historyUrls.has(canonicalJobUrl(d.job_url)));
+    const importIds=new Set(recent.map(d=>d.imported_job_id).filter(Boolean));
+    const newImports=current.filter(j=>{const t=Date.parse(j.created_at||'');return importIds.has(j.id)&&Number.isFinite(start)&&t>=start&&t<=end;});
     const empty=t=>'<div class="empty-state"><strong>'+esc(t)+'</strong></div>';
     const note=t=>'<p class="muted">'+esc(t)+'</p>';
     const jobList=rows=>rows.length?jobTable(rows).replace('id="jobsGrid"','id="metricJobsGrid"'):empty('No current unapplied vacancies in this view');
@@ -343,7 +345,7 @@ function inDenmark(location, country) {
       found:{title:'Jobs Found',html:note(count('vacancies_found')+' candidate pages found. '+runNote)+sourceList(diagnostics)+note('Available saved discoveries from this scan are shown below. Rejected pages may never have been saved; the saved list can be smaller than the total.')+(available.length?discoveryTable(available).replace('id="discoveryTable"','id="metricDiscoveryTable"'):empty('No available saved discoveries from this scan'))},
       strong:{title:'Strong Matches',html:note('Verified current Denmark vacancies with a match of 75% or higher. Applied jobs and duplicate vacancies are excluded.')+jobList(current.filter(j=>Number(j.match_score||0)>=75))},
       sources:{title:'Sources Checked',html:note((last?count('sources_checked'):sources.length)+' sources in the summary. '+runNote)+(last?sourceList(checked)+(!checked.length?note('Detailed successful-source diagnostics are unavailable. Open the source registry for the current configured sources.'):''):sourceList(sources))},
-      imported:{title:'Imported',html:note(count('imported_count')+' new jobs imported. '+runNote)+(last&&count('imported_count')>0?jobList(newImports):empty('No new jobs were imported in this scan'))+note('Only still-current, unapplied imports are displayed. Existing job history is preserved.')},
+      imported:{title:'Imported',html:note(count('imported_count')+' new jobs imported. '+runNote)+(last&&count('imported_count')>0?jobList(newImports):empty('No new jobs were imported in this scan'))+note('Only still-current, unapplied imports linked to saved discoveries are displayed. Some scan details may no longer be available. Existing job history is preserved.')},
       filtered:{title:'Filtered Out',html:note(count('rejected_count')+' candidate pages did not qualify. '+runNote)+sourceList(diagnostics.filter(d=>Number(d.rejected||0)>0))+note('Possible reasons include generic listing pages, closed or expired vacancies, excluded role types, unrelated jobs and missing evidence. Counts are scan diagnostics; expired job postings are not displayed here.')},
       errors:{title:'Source Errors',html:note(Number(last?.metadata?.failed_sources||0)+' source errors. '+runNote)+(failed.length?sourceList(failed):empty(Number(last?.metadata?.failed_sources||0)>0?'Detailed source errors were not saved for this scan':'No source errors reported'))},
       current:{title:'Current Vacancies',html:note('All verified current Denmark vacancies you have not applied for. Expired and closed jobs and duplicates are excluded.')+jobList(current)}
