@@ -111,3 +111,6 @@ th{color:#b5c6dc;border-color:#425a74;background:#13243a}td{border-color:#2d435d
   .attention-card{padding:18px}.progress-stage{padding:13px;min-height:60px}.dashboard-scan{padding:17px}
 }
 @media(prefers-reduced-motion:reduce){.vacancy{transition:none}}
+
+/* Scan summary cards open keyboard-accessible detail views. */
+.metric-action{display:block;width:100%;text-align:left;color:var(--text);font:inherit;cursor:pointer;transition:border-color .18s,box-shadow .18s}.metric-action:hover{transform:none;border-color:var(--cyan);box-shadow:0 0 0 2px color-mix(in srgb,var(--cyan) 20%,transparent)}.metric-action:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}.scanner-metric-modal{width:min(1180px,100%)}.scanner-metric-modal h2{margin:0}.scanner-metric-modal [data-metric-body]{margin-top:18px}

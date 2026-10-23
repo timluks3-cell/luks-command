@@ -58,10 +58,11 @@
     const x=missionStatus(status);
     return '<span class="status-chip '+x.cls+'">'+x.label+'</span>';
   }
-  function metric(value,label){
+  function metric(value,label,action){
     const text=label.toLowerCase();
     const kind=text.includes('strong')?'star':text.includes('interview')?'interview':text.includes('applied')||text.includes('application')?'applied':text.includes('error')?'alert':text.includes('current')||text.includes('target')?'career':'scanner';
-    return '<div class="metric metric-'+kind+'"><div class="metric-head"><span class="metric-icon">'+icon(kind)+'</span><div class="label">'+esc(label)+'</div></div><div class="value">'+esc(value)+'</div></div>';
+    const tag=action?'button':'div',control=action?' type="button" data-scan-metric="'+esc(action)+'" onclick="openScannerMetric(\''+action+'\')" aria-label="View '+esc(label)+': '+esc(value)+'"':'';
+    return '<'+tag+control+' class="metric metric-'+kind+(action?' metric-action':'')+'"><div class="metric-head"><span class="metric-icon">'+icon(kind)+'</span><div class="label">'+esc(label)+'</div></div><div class="value">'+esc(value)+'</div></'+tag+'>';
   }
   function safeDate(v){return v?new Date(v).toLocaleDateString("en-GB"):"—"}
   function safeText(v,fallback="—"){return (v===null||v===undefined||v==="")?fallback:String(v)}
@@ -326,6 +327,44 @@ function inDenmark(location, country) {
     careerFilter();
   };
 
+  function scannerMetricDetails(last,jobs,sources,discoveries){
+    const current=vacancyRows(jobs).filter(currentUnapplied),diagnostics=Array.isArray(last?.metadata?.diagnostics)?last.metadata.diagnostics:[];
+    const start=Date.parse(last?.started_at||''),end=Date.parse(last?.finished_at||last?.completed_at||'')||Date.now();
+    const inRun=d=>{const t=Date.parse(d.verified_at||d.created_at||'');return Number.isFinite(start)&&Number.isFinite(t)&&t>=start&&t<=end;};
+    const recent=discoveries.filter(inRun),available=recent.filter(d=>denmarkJob(d)&&!unavailableVacancy(d));
+    const newImports=current.filter(j=>{const t=Date.parse(j.created_at||'');return Number.isFinite(start)&&t>=start&&t<=end;});
+    const empty=t=>'<div class="empty-state"><strong>'+esc(t)+'</strong></div>';
+    const note=t=>'<p class="muted">'+esc(t)+'</p>';
+    const jobList=rows=>rows.length?jobTable(rows).replace('id="jobsGrid"','id="metricJobsGrid"'):empty('No current unapplied vacancies in this view');
+    const sourceList=rows=>rows.length?'<div class="source-list">'+rows.map(d=>'<div class="source-node"><div class="name">'+esc(d.source||d.source_name||d.name||'Source')+'</div><div class="stamp">'+esc(d.provider||'')+(d.error?' · '+esc(d.error):'')+'</div><div class="muted">Candidate pages: '+esc(d.found??'—')+' · Filtered out: '+esc(d.rejected??'—')+'</div></div>').join('')+'</div>':empty('No source details recorded for this scan');
+    const count=key=>Number(last?.[key]||0),runNote=last?'Scan started '+safeDate(last.started_at)+'. Counts describe that scan; vacancy lists exclude expired, closed and applied jobs.':'No scan has been recorded yet.';
+    const checked=diagnostics.filter(d=>d.ok===true),failed=diagnostics.filter(d=>d.ok===false);
+    return {
+      found:{title:'Jobs Found',html:note(count('vacancies_found')+' candidate pages found. '+runNote)+sourceList(diagnostics)+note('Available saved discoveries from this scan are shown below. Rejected pages may never have been saved; the saved list can be smaller than the total.')+(available.length?discoveryTable(available).replace('id="discoveryTable"','id="metricDiscoveryTable"'):empty('No available saved discoveries from this scan'))},
+      strong:{title:'Strong Matches',html:note('Verified current Denmark vacancies with a match of 75% or higher. Applied jobs and duplicate vacancies are excluded.')+jobList(current.filter(j=>Number(j.match_score||0)>=75))},
+      sources:{title:'Sources Checked',html:note((last?count('sources_checked'):sources.length)+' sources in the summary. '+runNote)+(last?sourceList(checked)+(!checked.length?note('Detailed successful-source diagnostics are unavailable. Open the source registry for the current configured sources.'):''):sourceList(sources))},
+      imported:{title:'Imported',html:note(count('imported_count')+' new jobs imported. '+runNote)+(last&&count('imported_count')>0?jobList(newImports):empty('No new jobs were imported in this scan'))+note('Only still-current, unapplied imports are displayed. Existing job history is preserved.')},
+      filtered:{title:'Filtered Out',html:note(count('rejected_count')+' candidate pages did not qualify. '+runNote)+sourceList(diagnostics.filter(d=>Number(d.rejected||0)>0))+note('Possible reasons include generic listing pages, closed or expired vacancies, excluded role types, unrelated jobs and missing evidence. Counts are scan diagnostics; expired job postings are not displayed here.')},
+      errors:{title:'Source Errors',html:note(Number(last?.metadata?.failed_sources||0)+' source errors. '+runNote)+(failed.length?sourceList(failed):empty(Number(last?.metadata?.failed_sources||0)>0?'Detailed source errors were not saved for this scan':'No source errors reported'))},
+      current:{title:'Current Vacancies',html:note('All verified current Denmark vacancies you have not applied for. Expired and closed jobs and duplicates are excluded.')+jobList(current)}
+    };
+  }
+  window.openScannerMetric=function(key){
+    const snapshot=window.LuksScannerMetrics,owner=window.LuksBridge?.user()?.id;
+    if(!owner||snapshot?.owner!==owner||!snapshot.details?.[key])return;
+    document.getElementById('scannerMetricDetails')?.querySelector('[data-close-metric]')?.click();
+    const previous=document.activeElement,wrap=document.createElement('div'),detail=snapshot.details[key];
+    wrap.id='scannerMetricDetails';wrap.className='overlay';
+    wrap.innerHTML='<section class="modal scanner-metric-modal" role="dialog" aria-modal="true" aria-labelledby="scannerMetricTitle"><div class="row space"><h2 id="scannerMetricTitle"></h2><button class="btn" type="button" data-close-metric>Close</button></div><div data-metric-body></div></section>';
+    wrap.querySelector('h2').textContent=detail.title;
+    wrap.querySelector('[data-metric-body]').innerHTML=detail.html;
+    const close=()=>{watch.disconnect();wrap.remove();previous?.focus?.();};
+    const watch=new MutationObserver(()=>{if(window.LuksBridge?.user()?.id!==owner||window.LuksScannerMetrics!==snapshot)close();});
+    wrap.querySelector('[data-close-metric]').addEventListener('click',close);
+    wrap.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();close();}if(e.key==='Tab'){const f=[...wrap.querySelectorAll('button,a[href],input,select,[tabindex="0"]')].filter(x=>!x.disabled&&x.getClientRects().length);if(e.shiftKey&&document.activeElement===f[0]){e.preventDefault();f.at(-1)?.focus();}else if(!e.shiftKey&&document.activeElement===f.at(-1)){e.preventDefault();f[0]?.focus();}}});
+    document.body.append(wrap);watch.observe(document.getElementById('root')||document.body,{childList:true,subtree:true});wrap.querySelector('[data-close-metric]').focus();
+  };
+
   window.scanner = async function(){
     if(localMode){
       E("view").innerHTML='<div class="mission-header"><div><div class="kicker">SCANNER CONSOLE</div><h1 class="command-title">Job Scanner</h1><div class="command-sub">Sign in to activate live scanning.</div></div>'+statusChip("standby")+'</div>';
@@ -349,17 +388,18 @@ function inDenmark(location, country) {
     const failedSources=Number(last?.metadata?.failed_sources||0);
     const diagRows=Array.isArray(last?.metadata?.diagnostics)?last.metadata.diagnostics:[];
     const failedDiagnostics=diagRows.filter(x=>!x.ok);
+    window.LuksScannerMetrics={owner:user?.id,details:scannerMetricDetails(last,jobRows,sourceRows,discoveryRows)};
     E("view").innerHTML=
       '<div class="mission-header"><div><div class="kicker">LIVE SEARCH OPERATIONS</div><h1 class="command-title">Job Scanner Console</h1><div class="command-sub">Search Danish vacancies, check live adverts and review your matches.</div></div><div class="row"><span id="scannerLiveState">'+statusChip(scannerState)+'</span><button id="scanNowBtn" class="mission-run" onclick="requestJobScan()">'+scanButtonLabel+'</button><button class="btn" onclick="openSources()">Open sources manually</button></div></div>'+
       '<div id="scanRequestStatus" role="status" aria-live="polite">'+scanRequestCard(latestRequest)+'</div>'+
       '<div class="metric-grid">'+
-        metric(last?last.vacancies_found:0,"Jobs Found")+
-        metric(vacancyRows(jobRows).filter(x=>currentUnapplied(x)&&(x.match_score||0)>=75).length,"Strong Matches")+
-        metric(last?last.sources_checked:sourceRows.length,"Sources Checked")+
-        metric(last?last.imported_count:0,"Imported")+
-        metric(last?last.rejected_count:0,"Filtered Out")+
-        metric(failedSources,"Source Errors")+
-        metric(vacancyRows(jobRows).filter(currentUnapplied).length,"Current Vacancies")+
+        metric(last?last.vacancies_found:0,"Jobs Found","found")+
+        metric(vacancyRows(jobRows).filter(x=>currentUnapplied(x)&&(x.match_score||0)>=75).length,"Strong Matches","strong")+
+        metric(last?last.sources_checked:sourceRows.length,"Sources Checked","sources")+
+        metric(last?last.imported_count:0,"Imported","imported")+
+        metric(last?last.rejected_count:0,"Filtered Out","filtered")+
+        metric(failedSources,"Source Errors","errors")+
+        metric(vacancyRows(jobRows).filter(currentUnapplied).length,"Current Vacancies","current")+
       '</div>'+
       '<div class="card"><div class="panel-title">How scan results are counted</div><p class="muted" style="margin-bottom:0"><b>Filtered Out</b> means candidate pages that were checked but did not qualify as a current matching vacancy. This can include generic career pages, expired or closed jobs, internships, student, trainee, elev or praktik roles, unrelated positions, or pages without enough evidence that the vacancy is still open. <b>Source Errors</b> means an entire source could not be read successfully.</p></div>'+
       '<h2>Best Current Matches <span id="bestMatchesCount" class="muted"></span></h2><div class="jobs-toolbar"><select id="matchOrder" aria-label="Sort matches" class="select" onchange="refreshBestMatches()"><option value="score">Best match</option><option value="newest">Date searched: newest</option><option value="oldest">Date searched: oldest</option><option value="applied">Applied first</option><option value="closed">Closed first</option></select><select id="matchStatus" aria-label="Vacancy status" class="select" onchange="refreshBestMatches()"><option value="current">Current jobs</option><option value="applied">Applied history</option><option value="closed">Closed history</option><option value="all">All available Denmark jobs</option><option value="review">Review missing locations</option></select><label class="pill" style="cursor:pointer"><input type="checkbox" id="showAppliedInCurrent" onchange="toggleAppliedInCurrent(this.checked)"> Show applied / history jobs</label><span class="muted">Current matches require verification within 7 days and an unexpired deadline · History is preserved · Denmark only</span></div><div id="bestMatchesGrid"></div>'+
