@@ -24,7 +24,7 @@ for(const page of ['dashboard','scanner','career']){
   context.window=context;
   vm.runInContext(readFileSync('job-role-categories.js','utf8'),context);
   vm.runInContext(readFileSync('scanner.js','utf8'),context);
-  context.user={id:'sample'};
+  context.user={id:'sample-owner'};
   context.render();
   await context[page]();
   let view=E('view').innerHTML;
@@ -32,8 +32,8 @@ for(const page of ['dashboard','scanner','career']){
   view=view.replace('id="careerCount" class="muted"></span>','id="careerCount" class="muted">'+E('careerCount').textContent+'</span>');
   // Static review only: keep disclosure controls, remove database/action controls.
   const shell=E('root').innerHTML.replace('<div id="view">Loading…</div>','<div id="view">'+view+'</div>').replace(/ on\w+="[^"]*"/g,'');
+  const metricScript=page==='scanner'?'<script>window.LuksScannerMetrics='+JSON.stringify(context.LuksScannerMetrics).replace(/</g,'\\u003c')+';window.openScannerMetric='+context.openScannerMetric.toString()+';const showMetric=window.openScannerMetric;window.openScannerMetric=key=>{showMetric(key);document.querySelectorAll(\'#scannerMetricDetails [onclick]\').forEach(b=>{b.disabled=true;b.removeAttribute(\'onclick\')});};document.querySelectorAll(\'[data-scan-metric]\').forEach(b=>{b.disabled=false;b.onclick=()=>openScannerMetric(b.dataset.scanMetric)});</script>':'';
   const banner='<div style="padding:12px;background:#15344b;color:white">Display preview · sample data · sample actions only · <button onclick="openJobWorkspace(&quot;sample-job&quot;)">Try workspace</button> · <a href="display-preview.html">All screens</a></div>';
-  writeFileSync('dist/display-'+page+'.html','<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LUKS display preview</title><style>'+style+'</style>'+banner+shell.replace(/<button /g,'<button disabled ')+'<script src="theme-init.js"></script><script src="workspace-core.js"></script><script src="preview-workspace-runtime.js"></script><script src="vendor/pdf-lib.min.js"></script><script src="vendor/fontkit.umd.min.js"></script><script src="vendor/docx.umd.js"></script><script src="job-workspace.js"></script>');
+  writeFileSync('dist/display-'+page+'.html','<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LUKS display preview</title><style>'+style+'</style>'+banner+shell.replace(/<button /g,'<button disabled ')+'<script src="theme-init.js"></script><script src="workspace-core.js"></script><script src="preview-workspace-runtime.js"></script><script src="vendor/pdf-lib.min.js"></script><script src="vendor/fontkit.umd.min.js"></script><script src="vendor/docx.umd.js"></script><script src="job-workspace.js"></script>'+metricScript);
 }
 writeFileSync('dist/display-preview.html','<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LUKS display review</title><style>body{background:#050a12;color:#e8f3ff;font:16px/1.5 system-ui;margin:24px}a{color:#35d9ff}iframe{border:1px solid #215579;border-radius:12px;max-width:100%}nav{display:flex;gap:20px;flex-wrap:wrap}</style><h1>LUKS COMMAND display review</h1><p>Sample data only. Preview pages have no database connection or active job actions.</p><nav><a href="display-dashboard.html">Dashboard</a><a href="display-scanner.html">Scanner</a><a href="display-career.html">Tracking board</a></nav><h2>Mobile dashboard · 390px</h2><iframe title="Mobile dashboard preview" src="display-dashboard.html" width="390" height="1100"></iframe><h2>Desktop dashboard</h2><iframe title="Desktop dashboard preview" src="display-dashboard.html" width="1400" height="1100"></iframe></html>');
-
