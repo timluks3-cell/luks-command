@@ -114,3 +114,7 @@ th{color:#b5c6dc;border-color:#425a74;background:#13243a}td{border-color:#2d435d
 
 /* Scan summary cards open keyboard-accessible detail views. */
 .metric-action{display:block;width:100%;text-align:left;color:var(--text);font:inherit;cursor:pointer;transition:border-color .18s,box-shadow .18s}.metric-action:hover{transform:none;border-color:var(--cyan);box-shadow:0 0 0 2px color-mix(in srgb,var(--cyan) 20%,transparent)}.metric-action:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}.scanner-metric-modal{width:min(1180px,100%)}.scanner-metric-modal h2{margin:0}.scanner-metric-modal [data-metric-body]{margin-top:18px}
+
+.source-job-action{width:100%;text-align:left;font:inherit;cursor:pointer;color:inherit;display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--border,#334d68)}
+.source-job-action:hover{border-color:var(--accent,#3478d4);transform:translateY(-1px)}
+.source-job-action:focus-visible{outline:3px solid var(--accent,#3478d4);outline-offset:3px}
