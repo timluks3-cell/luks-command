@@ -13,7 +13,7 @@ async function scanner(extra={}){
 test('all seven scan-summary cards are keyboard-accessible detail buttons',async()=>{
  const {html,details}=await scanner();assert.equal((html.match(/data-scan-metric=/g)||[]).length,7);
  for(const key of ['found','strong','sources','imported','filtered','errors','current']){assert.ok(html.includes('data-scan-metric="'+key+'"'));assert.ok(details[key].title);assert.ok(details[key].html);}
- assert.match(html,/type="button".*aria-label="View Jobs Found: 5"/);
+ assert.match(html,/type="button".*aria-label="View Jobs Found: 3"/);
 });
 test('vacancy detail lists keep expired, foreign, applied and older imports out',async()=>{
  const {details}=await scanner();for(const key of ['strong','current','imported']){for(const title of ['Expired vacancy','Applied vacancy','Foreign vacancy'])assert.ok(!details[key].html.includes(title),key+': '+title);}
@@ -27,3 +27,27 @@ test('zero and missing scan details remain usable without fabricated lists',asyn
  const missing=await scanner({job_scan_runs:[{started_at:start,sources_checked:10,imported_count:0,metadata:{failed_sources:4}}]});assert.match(missing.details.errors.html,/not saved/);assert.match(missing.details.sources.html,/unavailable/);assert.doesNotMatch(missing.details.imported.html,/New strong vacancy/);
 });
 test('account changes cannot open a prior owner metric snapshot',async()=>{const {ctx}=await scanner();ctx.user={id:'other-owner'};assert.doesNotThrow(()=>ctx.openScannerMetric('current'));});
+
+test('Jobs Found groups only specific verified current adverts into clickable sources',async()=>{
+ const valid=job('live','BIM Coordinator',{source_name:'<Employer>',company:'Employer'});
+ const duplicate={...valid,id:'duplicate',job_url:valid.job_url+'?utm_source=test'};
+ const rejected=[job('generic-title','Careers'),job('generic-url','Generic URL role',{job_url:'https://example.test/en/careers/'}),job('unverified','Unverified role',{verified_open:false}),job('stale','Stale role',{verified_at:'2020-01-01'}),job('missing-url','Missing link',{job_url:null}),job('unsafe-url','Unsafe link',{job_url:'javascript:alert(1)'}),job('rejected','Rejected page',{verification_evidence:'generic career/listing page excluded'}),job('applied-copy','Applied role',{status:'applied'})];
+ const {details,html}=await scanner({jobs:[valid,...rejected],job_discoveries:[valid,duplicate,...rejected]});
+ assert.equal(details.found.count,1);assert.match(html,/View Jobs Found: 1/);
+ assert.match(details.found.html,/data-scan-source="found-source-0"/);assert.match(details.found.html,/&lt;Employer&gt;/);
+ assert.doesNotMatch(details.found.html,/Candidate pages:|class="stamp">generic|Readable source/);
+ const group=details['found-source-0'];assert.match(group.html,/BIM Coordinator/);assert.match(group.html,/Open job advert/);assert.match(group.html,/Job workspace/);assert.match(group.html,/Back to Jobs Found/);
+ for(const j of rejected)assert.ok(!group.html.includes('>'+j.title+'<'),j.title);
+ assert.equal((group.html.match(/data-job-row/g)||[]).length,1);
+ assert.doesNotMatch(details.current.html,/Careers|Unverified role|Rejected page|Missing link|Unsafe link|Stale role/);
+});
+test('sources with only generic or unverified results never become Jobs Found cards',async()=>{
+ const {details}=await scanner({jobs:[],job_discoveries:[job('index','Jobs'),job('pending','BIM Coordinator',{verified_open:false})]});
+ assert.equal(details.found.count,0);assert.match(details.found.html,/No verified current vacancies/);assert.doesNotMatch(details.found.html,/data-scan-source=/);
+});
+
+test('verified discoveries without an imported job open adverts without invalid tracking actions',async()=>{
+ const {details}=await scanner({jobs:[],job_discoveries:[job('discovery-id','BIM Coordinator')]});
+ assert.equal(details.found.count,1);assert.match(details['found-source-0'].html,/Open job advert/);
+ assert.doesNotMatch(details['found-source-0'].html,/openJobWorkspace|setJobStatus/);
+});
