@@ -238,7 +238,7 @@ function inDenmark(location, country) {
         (scanError?'<p class="bad">Some scan details could not be loaded. Open the scanner to retry.</p>':'')+
         '<div id="scanRequestStatus" role="status" aria-live="polite">'+scanRequestCard(latestRequest)+'</div>'+
         '<h3>Last scan</h3><div class="metric-grid">'+metric(last?.vacancies_found||0,'Candidate pages found')+metric(last?.sources_checked||0,'Sources checked')+metric(last?.imported_count||0,'Imported')+metric(sourceErrors,'Source errors')+'</div>'+
-        '<p class="muted">These numbers describe the last scan. The summary above describes your current tracked jobs. Daily scans start at 08:00 Denmark time.</p>'+
+        '<p class="muted">These numbers describe the last scan. The summary above describes your current tracked jobs. Scans start only when you click RUN JOB SCAN.</p>'+
         '<button class="btn" onclick="go(\'scanner\')">Open scanner and diagnostics</button><h3 class="source-heading">Recently checked sources</h3><div class="source-list">'+(sources.slice(0,6).map(sourceNode).join('')||'<p class="muted">No sources available.</p>')+'</div></details>'+
       '<h2>Quick links</h2><div class="dashboard-shortcuts"><button class="btn" onclick="go(\'projects\')">Projects</button><button class="btn" onclick="go(\'sites\')">My sites</button><button class="btn" onclick="go(\'tasks\')">Tasks</button><button class="btn" onclick="go(\'settings\')">Settings</button></div>';
     if(active)setTimeout(()=>pollScanRequest(latestRequest.id),0);
@@ -534,7 +534,7 @@ function inDenmark(location, country) {
         return '<div class="row space" style="padding:6px 0;border-bottom:1px solid #eef2f7"><span>'+esc(s.name)+'</span>'+(clickable?'<button class="btn" onclick="openExternal(\''+s.domain+'\')">Open</button>':'<span class="muted">search target</span>')+'</div>';
       }).join("")+'</div></div>';
     }).join("");
-    document.body.insertAdjacentHTML("beforeend",'<div class="overlay"><div class="modal"><div class="row space"><div><h2>Job Source Registry</h2><div class="muted">'+rows.length+' enabled sources used by the daily scan.</div></div><button class="btn" onclick="closeModal()">Close</button></div>'+html+'</div></div>');
+    document.body.insertAdjacentHTML("beforeend",'<div class="overlay"><div class="modal"><div class="row space"><div><h2>Job Source Registry</h2><div class="muted">'+rows.length+' enabled sources available for manual scans.</div></div><button class="btn" onclick="closeModal()">Close</button></div>'+html+'</div></div>');
   };
 
 
@@ -551,7 +551,7 @@ function inDenmark(location, country) {
       if(!id) throw new Error("The server did not return a scan request.");
       if(page==="scanner") await scanner(); else if(page==="dashboard") await dashboard();
       pollScanRequest(id);
-      msg("Background scan queued. You can close the browser.","good");
+      msg("Manual scan queued. It can finish even after you close the browser.","good");
     }catch(error){msg(error.message||String(error),"bad");}
     finally{
       window.__liveScanRunning=false;
@@ -573,7 +573,7 @@ function inDenmark(location, country) {
 
     function scanRequestCard(req){
     if(!req){
-      return '<div class="card"><div class="row space"><div><b>Background scan</b><div class="muted">Press RUN JOB SCAN to queue a background scan. Daily scans start at 08:00 Denmark time.</div></div></div></div>';
+      return '<div class="card"><div class="row space"><div><b>Background scan</b><div class="muted">Press RUN JOB SCAN to start a new scan. Automatic daily scanning is disabled.</div></div></div></div>';
     }
     const labels={pending:"Queued",running:"Searching",completed:"Completed",partial:"Completed with limits",failed:"Failed"};
     const label=labels[req.status]||req.status;
@@ -616,7 +616,7 @@ function inDenmark(location, country) {
   };
 
   window.settings = function(){
-    E("view").innerHTML='<div class="mission-header"><div><div class="kicker">SYSTEM CONFIGURATION</div><h1 class="command-title">Settings</h1></div>'+statusChip("online")+'</div><div class="card"><b>Mode</b><p class="muted">'+(localMode?"Local mode":"Online Supabase mode")+'</p></div><div class="card"><b>Daily Job Search</b><p class="muted">Starts at 08:00 Denmark time using your saved career profile. Collection continues with the browser closed; unavailable sources are reported.</p></div>';
+    E("view").innerHTML='<div class="mission-header"><div><div class="kicker">SYSTEM CONFIGURATION</div><h1 class="command-title">Settings</h1></div>'+statusChip("online")+'</div><div class="card"><b>Mode</b><p class="muted">'+(localMode?"Local mode":"Online Supabase mode")+'</p></div><div class="card"><b>Manual Job Search</b><p class="muted">Automatic daily scanning is off. Click RUN JOB SCAN when you want fresh job results. A scan you start can continue after you close the browser; unavailable sources are reported.</p></div>';
   };
 
   window.LuksBridge={user:()=>user,get db(){return db;},denmarkJob,refresh:()=>loadPage()};

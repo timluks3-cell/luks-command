@@ -1,9 +1,9 @@
 # Background scans
 
-LUKS COMMAND uses a server queue. Manual and daily scans continue after the browser closes.
-Daily enqueue is configured for **08:00 Europe/Copenhagen**, including daylight-saving changes.
-A minute-level dispatcher only calls the worker while work is eligible. A full scan takes multiple
-batches; 08:00 is its start time, not a promised completion time.
+LUKS COMMAND uses a server queue for **manual scans only**. A signed-in user must click
+**RUN JOB SCAN** to create a new scan. There is no automatic daily enqueue. A minute-level
+dispatcher wakes the worker only while queued work is eligible. Once manually started,
+a full scan can finish in multiple batches even if the browser closes.
 
 ## Files and boundaries
 
@@ -52,10 +52,12 @@ Project: `wqopxxzlfuifcfukydvn`. Deploy both functions and their `_shared` depen
 `SUPABASE_URL`/`SUPABASE_ANON_KEY`. The migration generates `luks_worker_token` in Vault without
 returning its value. Netlify publishes only the three frontend files from `dist/`; it does not apply migrations or deploy functions. The migrations build on the existing database baseline.
 
-`ops/activate-scans.sql` enables the owner's daily schedule, installs the named minute dispatcher,
-and starts one full scan. Activation is separate from schema deployment so tests can run first.
-`ops/pause-scans.sql` stops new scheduled execution without deleting records or saved progress.
-The ChatGPT daily monitor reports saved results rather than running a second independent importer.
+`ops/activate-scans.sql` disables all automatic scan schedules and activates the minute dispatcher.
+It **never queues a scan**. Activation is separate from schema deployment so tests can run first.
+`ops/pause-scans.sql` pauses the dispatcher (including manual-request processing), without deleting records.
+Keep the dispatcher active with all `luks_private.scan_schedule.enabled` values false for manual-only mode.
+Any existing in-progress request may still finish; new work starts only from an authenticated click.
+Any ChatGPT reporting task should only report saved results and must not enqueue jobs.
 
 The private queue has deny-by-default RLS and no ordinary-user grants. The user enqueue wrapper is
 intentionally SECURITY DEFINER, requires `auth.uid()`, and checks request ownership. Worker RPCs
