@@ -51,3 +51,14 @@ test('verified discoveries without an imported job open adverts without invalid 
  assert.equal(details.found.count,1);assert.match(details['found-source-0'].html,/Open job advert/);
  assert.doesNotMatch(details['found-source-0'].html,/openJobWorkspace|setJobStatus/);
 });
+
+test('manual scan UI shows publication freshness separately from search date',async()=>{
+ const recent=new Date(now-86400000).toISOString();
+ const {html,ctx}=await scanner({jobs:[job('recent','Fresh BIM vacancy',{published_at:recent}),job('unknown','Undated BIM vacancy',{published_at:null}),job('applied-recent','Already applied',{status:'applied',published_at:recent})]});
+ assert.match(html,/Date published: newest \(known dates first\)/);
+ assert.match(html,/2 new currently verified vacancies added since the latest scan started/);
+ assert.match(html,/1 currently verified vacancies with known publication dates in the last 7 days/);
+ assert.match(html,/Sources with useful past results are checked first/);
+ ctx.refreshBestMatches();
+ assert.match(html,/RUN JOB SCAN/);
+});
