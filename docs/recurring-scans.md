@@ -27,6 +27,13 @@ a full scan can finish in multiple batches even if the browser closes.
 
 Each owner has at most one active work item. Requests reuse that item under a transaction lock.
 Source order and configuration are snapshotted when queued, so source edits do not shift a cursor.
+For new manual scans, sources with past useful hits are checked first, then never-checked sources,
+then previously checked zero-hit sources. Every enabled source still remains in the snapshot;
+priority changes scan order, not coverage, and earlier work snapshots are untouched.
+Job results can be sorted by published date when a trustworthy date is available, with undated
+postings later in the list. The UI reports newly added verified jobs and recent known publication
+dates separately; a recent verification date is not evidence of a recent posting.
+
 The worker claims up to four sources with a 150-second lease and a random fencing token.
 An interrupted worker is retried after lease expiry; late results from its old token are rejected.
 Source failures retry up to three claims, then record failed sources and allow the scan to finish
